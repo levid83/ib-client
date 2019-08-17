@@ -13,17 +13,34 @@ export default class extends EventEmitter {
     this._dataFragment = ''
   }
 
-  _onConnect() {
-    this._connected = true
+  onConnected(cb = () => {}) {
+    this.on('connected', cb)
+    return this
   }
 
-  _onEnd() {
-    this._connected = false
-    this._firstReceived = true
+  onResponse(cb = data => {}) {
+    this.on('response-data', cb)
+    return this
+  }
+
+  onServerData(cb = serverData => {}) {
+    this.on('server', cb)
+    return this
+  }
+
+  onError(cb = error => {}) {
+    this.on('error', cb)
+    return this
+  }
+
+  onClose(cb = () => {}) {
+    this.on('close', cb)
+    return this
   }
 
   connect(cb = function() {}) {
     this._socket.connect(this._options, cb)
+    return this
   }
 
   disconnect() {
@@ -34,35 +51,33 @@ export default class extends EventEmitter {
     return this._connected
   }
 
+  write(data, cb) {
+    // flatten if needed
+    let tokens = [data].reduce((prev, curr) => prev.concat(curr))
+    // cast the boolean values to 0 or 1
+    tokens = tokens.map((val, i) => {
+      if (typeof val === 'boolean') return val ? 1 : 0
+      return val
+    })
+    let message = tokens.join(EOL) + EOL
+    this._socket.write(message, 'utf8', cb(message))
+  }
+
   _wrapSocket(socket) {
     return socket
-      .on('close', hadError => {
-        console.log('close ', hadError ? 'transtion error' : 'no transition error')
-        this.emit('close', hadError)
-      })
-      .on('connect', () => this.emit('connect'))
+      .on('connect', () => {})
+      .on('ready', () => this._onConnect())
       .on('data', data => this._onData(data))
-      .on('drain', () => {
-        console.log('drain event')
-        this.emit('drain')
-      })
-      .on('end', () => {
-        this._onEnd()
-        console.log('end event')
-        this.emit('end')
-      })
-      .on('error', err => {
-        console.log('error', err)
-        this.emit('error', err)
-      })
-      .on('ready', () => {
-        this._onConnect()
-        this.emit('ready')
-      })
-      .on('timeout', () => {
-        console.log('timeout event')
-        this.emit('timeout')
-      })
+      .on('error', error => this._onError(error))
+      .on('end', () => this._onClose())
+      .on('close', hadError => this._onClose(hadError))
+      .on('timeout', () => {})
+      .on('drain', () => () => {})
+  }
+
+  _onConnect() {
+    this._connected = true
+    this.emit('connected')
   }
 
   _onData(data) {
@@ -83,15 +98,13 @@ export default class extends EventEmitter {
     this.emit('response-data', tokens)
   }
 
-  write(data, cb) {
-    // flatten if needed
-    let tokens = [data].reduce((prev, curr) => prev.concat(curr))
-    // cast the boolean values to 0 or 1
-    tokens = tokens.map((val, i) => {
-      if (typeof val === 'boolean') return val ? 1 : 0
-      return val
-    })
-    let message = tokens.join(EOL) + EOL
-    this._socket.write(message, 'utf8', cb(message))
+  _onError(error) {
+    this.emit('error', error)
+  }
+
+  _onClose(error = false) {
+    this._connected = false
+    this._firstReceived = true
+    this.emit('close', error)
   }
 }
