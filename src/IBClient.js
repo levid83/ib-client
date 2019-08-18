@@ -6,7 +6,7 @@ import Queue from './Queue'
 import MessageEncoder from './MessageEncoder'
 import MessageDecoder from './MessageDecoder'
 
-class EClient {
+class IBClient {
   constructor(options = { socket: null, clientId: null }) {
     this._clientId = options.clientId
     this._eventHandler = new EventEmitter()
@@ -605,4 +605,4 @@ class EClient {
     this._messageDecoder.decodeMessage()
   }
 }
-export default EClient
+export default IBClient
