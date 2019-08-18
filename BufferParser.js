@@ -5,20 +5,20 @@ class BufferParser {
   constructor() {
     this._buffer = []
   }
-  dequeue() {
+  readAndShift() {
     if (this._buffer.length === 0) throw new UnderrunError()
     return this._buffer.shift()
   }
-  dequeueBool() {
-    return !!parseInt(this.dequeue(), 10)
+  readAndShiftBool() {
+    return !!parseInt(this.readAndShift(), 10)
   }
-  dequeueFloat() {
-    return parseFloat(this.dequeue())
+  readAndShiftFloat() {
+    return parseFloat(this.readAndShift())
   }
-  dequeueInt() {
-    return parseInt(this.dequeue(), 10)
+  readAndShiftInt() {
+    return parseInt(this.readAndShift(), 10)
   }
-  enqueue(tokens) {
+  write(tokens) {
     this._buffer = this._buffer.concat(tokens)
   }
 
@@ -30,11 +30,11 @@ class BufferParser {
     while (true) {
       let bufferSnapshot = this._buffer.slice()
       try {
-        let responseCode = this.dequeueInt()
+        let responseCode = this.readAndShiftInt()
         let responseFunctionName = this._responseCodeToString(responseCode)
         cb(null, responseFunctionName)
       } catch (e) {
-        if (!(e instanceof UnderrunError)) throw e
+        if (!(e instanceof UnderrunError)) err = e
         this._restoreLastChunk(bufferSnapshot)
         return
       }
