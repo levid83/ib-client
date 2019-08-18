@@ -1,4 +1,4 @@
-import { isEmpty, isArray, isString, isPlainObject } from 'lodash'
+import { isEmpty, isPlainObject } from 'lodash'
 
 import { MIN_SERVER_VER, OUTGOING, BAG_SEC_TYPE } from './constants'
 
@@ -273,7 +273,7 @@ class MessageEncoder {
             }
         }
         if (this._serverVersion < MIN_SERVER_VER.SSHORT_COMBO_LEGS) {
-            if (isArray(contract.comboLegs)) {
+            if (Array.isArray(contract.comboLegs)) {
                 contract.comboLegs.forEach(
                     function (comboLeg) {
                         if (!isEmpty(comboLeg.shortSaleSlot) || !isEmpty(comboLeg.designatedLocation)) {
@@ -326,7 +326,7 @@ class MessageEncoder {
             }
         }
         if (this._serverVersion < MIN_SERVER_VER.SSHORTX) {
-            if (isArray(contract.comboLegs)) {
+            if (Array.isArray(contract.comboLegs)) {
                 contract.comboLegs.forEach(
                     function (comboLeg) {
                         if (comboLeg.exemptCode !== -1) {
@@ -389,10 +389,10 @@ class MessageEncoder {
         }
         if (
             this._serverVersion < MIN_SERVER_VER.ORDER_COMBO_LEGS_PRICE &&
-            isString(contract.secType) &&
+            typeof contract.secType === 'string' &&
             BAG_SEC_TYPE.toUpperCase() === contract.secType.toUpperCase()
         ) {
-            if (isArray(order.orderComboLegs)) {
+            if (Array.isArray(order.orderComboLegs)) {
                 order.orderComboLegs.forEach(
                     function (orderComboLeg) {
                         if (orderComboLeg.price !== Number.MAX_VALUE) {
@@ -500,10 +500,10 @@ class MessageEncoder {
         // Send combo legs for BAG requests
         if (
             this._serverVersion >= 8 &&
-            isString(contract.secType) &&
+            typeof contract.secType === 'string' &&
             BAG_SEC_TYPE.toUpperCase() === contract.secType.toUpperCase()
         ) {
-            if (!isArray(contract.comboLegs)) {
+            if (!Array.isArray(contract.comboLegs)) {
                 buffer.push(0)
             } else {
                 buffer.push(contract.comboLegs.length)
@@ -528,10 +528,10 @@ class MessageEncoder {
         // Send order combo legs for BAG requests
         if (
             this._serverVersion >= MIN_SERVER_VER.ORDER_COMBO_LEGS_PRICE &&
-            isString(contract.secType) &&
+            typeof contract.secType === 'string' &&
             BAG_SEC_TYPE.toUpperCase() === contract.secType.toUpperCase()
         ) {
-            if (!isArray(order.orderComboLegs)) {
+            if (!Array.isArray(order.orderComboLegs)) {
                 buffer.push(0)
             } else {
                 buffer.push(order.orderComboLegs.length)
@@ -543,10 +543,10 @@ class MessageEncoder {
         let smartComboRoutingParamsCount
         if (
             this._serverVersion >= MIN_SERVER_VER.SMART_COMBO_ROUTING_PARAMS &&
-            isString(contract.secType) &&
+            typeof contract.secType === 'string' &&
             BAG_SEC_TYPE.toUpperCase() === contract.secType.toUpperCase()
         ) {
-            smartComboRoutingParamsCount = !isArray(order.smartComboRoutingParams)
+            smartComboRoutingParamsCount = !Array.isArray(order.smartComboRoutingParams)
                 ? 0
                 : order.smartComboRoutingParams.length
             buffer.push(smartComboRoutingParamsCount)
@@ -722,7 +722,7 @@ class MessageEncoder {
         if (this._serverVersion >= MIN_SERVER_VER.ALGO_ORDERS) {
             buffer.push(order.algoStrategy)
             if (!isEmpty(order.algoStrategy)) {
-                algoParamsCount = !isArray(order.algoParams) ? 0 : order.algoParams.length
+                algoParamsCount = !Array.isArray(order.algoParams) ? 0 : order.algoParams.length
                 buffer.push(algoParamsCount)
                 if (algoParamsCount > 0) {
                     order.algoParams.forEach(function (tagValue) {
@@ -973,10 +973,10 @@ class MessageEncoder {
             buffer.push(formatDate)
         }
         if (
-            isString(contract.secType) &&
+            typeof contract.secType === 'string' &&
             BAG_SEC_TYPE.toUpperCase() === contract.secType.toUpperCase()
         ) {
-            if (!isArray(contract.comboLegs)) {
+            if (!Array.isArray(contract.comboLegs)) {
                 buffer.push(0)
             } else {
                 buffer.push(contract.comboLegs.length)
@@ -1033,10 +1033,10 @@ class MessageEncoder {
         buffer.push(whatToShow)
         buffer.push(useRTH)
         if (
-            isString(contract.secType) &&
+            typeof contract.secType === 'string' &&
             BAG_SEC_TYPE.toUpperCase() === contract.secType.toUpperCase()
         ) {
-            if (!isArray(contract.comboLegs)) {
+            if (!Array.isArray(contract.comboLegs)) {
                 buffer.push(0)
             } else {
                 buffer.push(contract.comboLegs.length)
@@ -1144,10 +1144,10 @@ class MessageEncoder {
         }
         if (
             this._serverVersion >= 8 &&
-            isString(contract.secType) &&
+            typeof contract.secType === 'string' &&
             BAG_SEC_TYPE.toUpperCase() === contract.secType.toUpperCase()
         ) {
-            if (!isArray(contract.comboLegs)) {
+            if (!Array.isArray(contract.comboLegs)) {
                 buffer.push(0)
             } else {
                 buffer.push(contract.comboLegs.length)
