@@ -1,24 +1,51 @@
 {
-  "name": "ib",
-  "version": "0.0.0",
-  "private": true,
-  "babel": {
-    "presets": [
-      "@babel/env"
-    ],
-    "retainLines": true
+  "name": "ib-client",
+  "description": "Interactive Brokers API client library for Node.js",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "Levente Danel"
   },
+  "homepage": "https://github.com/levid83/ib-client",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/levid83/ib-client.git"
+  },
+  "keywords": [
+    "interactive",
+    "brokers",
+    "tws",
+    "twsapi",
+    "ib",
+    "gateway",
+    "stock",
+    "bond",
+    "option",
+    "forex",
+    "future",
+    "ticker",
+    "symbol",
+    "quote",
+    "market",
+    "trade",
+    "trading",
+    "system",
+    "api",
+    "client",
+    "library"
+  ],
   "scripts": {
-    "start": "nodemon --exec babel-node server.js",
-    "dev": "npm run start",
-    "build": "babel src -d dist"
+    "build": "./node_modules/.bin/babel src --out-dir lib",
+    "prepare": "npm run build"
   },
+  "main": "lib/index.js",
   "dependencies": {
     "better-queue": "^3.8.10",
     "function-rate-limit": "^1.1.0",
-    "morgan": "~1.9.0"
+    "lodash": "^4.17.15"
   },
   "devDependencies": {
+    "@babel/cli": "^7.5.5",
     "@babel/core": "^7.3.3",
     "@babel/node": "^7.2.2",
     "@babel/preset-env": "^7.5.5",
@@ -32,7 +59,6 @@
     "eslint-plugin-prettier": "^3.0.1",
     "eslint-plugin-promise": "^4.0.1",
     "eslint-plugin-standard": "^4.0.0",
-    "nodemon": "^1.18.10",
     "prettier": "^1.16.4"
   }
 }
