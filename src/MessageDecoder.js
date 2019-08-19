@@ -14,9 +14,9 @@ class MessageDecoder {
 
   decodeMessage() {
     this._bufferParser.process((err, methodName) => {
+      if (err) throw err
       if (methodName && typeof this['_' + methodName] === 'function') this['_' + methodName]()
       else throw new Error('Unknown broker API response: ' + methodName)
-      if (err) throw err
     })
   }
 
