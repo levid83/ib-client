@@ -6,6 +6,7 @@ class MessageDecoder {
   constructor(options = { eventHandler: null }) {
     this._eventHandler = options.eventHandler
     this._bufferParser = new BufferParser()
+    this._serverVersion = null
   }
 
   receiveMessage(message) {
@@ -22,6 +23,10 @@ class MessageDecoder {
 
   _emit() {
     this._eventHandler.emit(...arguments)
+  }
+
+  setServerVersion(version) {
+    this._serverVersion = version
   }
 
   _ACCT_DOWNLOAD_END() {
@@ -234,14 +239,15 @@ class MessageDecoder {
     let version = this._bufferParser.readAndShiftInt()
     if (version < 2) {
       errorMsg = this._bufferParser.readAndShift()
-      this._controller.emitError(errorMsg)
+      this._emit('error', errorMsg)
     } else {
       id = this._bufferParser.readAndShiftInt()
       errorCode = this._bufferParser.readAndShiftInt()
       errorMsg = this._bufferParser.readAndShift()
-      this._controller.emitError(errorMsg, {
+      this._emit('error', {
         id: id,
-        code: errorCode
+        code: errorCode,
+        message: errorMsg
       })
     }
   }
@@ -626,7 +632,7 @@ class MessageDecoder {
       order.settlingFirm = this._bufferParser.readAndShift()
       order.shortSaleSlot = this._bufferParser.readAndShiftInt()
       order.designatedLocation = this._bufferParser.readAndShift()
-      if (this._controller._serverVersion === 51) {
+      if (this._serverVersion === 51) {
         this._bufferParser.readAndShiftInt() // exemptCode
       } else if (version >= 23) {
         order.exemptCode = this._bufferParser.readAndShiftInt()
@@ -681,7 +687,7 @@ class MessageDecoder {
         }
       }
       order.continuousUpdate = this._bufferParser.readAndShiftInt()
-      if (this._controller._serverVersion === 26) {
+      if (this._serverVersion === 26) {
         order.stockRangeLower = this._bufferParser.readAndShiftFloat()
         order.stockRangeUpper = this._bufferParser.readAndShiftFloat()
       }
@@ -905,7 +911,7 @@ class MessageDecoder {
     if (version >= 4) {
       accountName = this._bufferParser.readAndShift()
     }
-    if (version === 6 && this._controller._serverVersion === 39) {
+    if (version === 6 && this._serverVersion === 39) {
       contract.primaryExch = this._bufferParser.readAndShift()
     }
     this._emit(
