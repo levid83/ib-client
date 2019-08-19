@@ -34,7 +34,7 @@ class BufferParser {
         let responseFunctionName = this._responseCodeToString(responseCode)
         cb(null, responseFunctionName)
       } catch (e) {
-        if (!(e instanceof UnderrunError)) err = e
+        if (!(e instanceof UnderrunError)) cb(e, null)
         this._restoreLastChunk(bufferSnapshot)
         return
       }
@@ -43,7 +43,7 @@ class BufferParser {
 
   _responseCodeToString(responseCode) {
     for (let key in INCOMING) {
-      if (INCOMING[key] === value) {
+      if (INCOMING[key] === responseCode) {
         return key
       }
     }
