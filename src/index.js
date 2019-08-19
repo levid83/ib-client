@@ -589,7 +589,10 @@ class IBClient {
     socket
       .onError(err => console.log(err))
       .onConnected(() => console.log('connected to IB'))
-      .onServerData(({ serverVersion }) => this._messageEncoder.setServerVersion(serverVersion))
+      .onServerData(({ serverVersion }) => {
+        this._messageEncoder.setServerVersion(serverVersion)
+        this._messageDecoder.setServerVersion(serverVersion)
+      })
       .onResponse(data => this._receiveResponse(data))
       .onClose(err => console.log('disconnected from IB', err ? ' due to a transtion error' : ''))
 
