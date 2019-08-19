@@ -1,24 +1,23 @@
+import assert from 'assert'
 import { SEC_TYPE, DEFAULT_CURRENCY, DEFAULT_EXCHANGE } from '../constants'
 
 export default class {
-  constructor(settings = { conId, symbol, currency, exchange }) {
+  constructor({ conId, symbol, currency, exchange }) {
     if (!conId) {
       assert(typeof symbol === 'string' && symbol.length > 0, 'Symbol must be a string.')
-      assert(typeof currency === 'string' && currency.length > 0, 'Currency must be a string.')
-      assert(typeof exchange === 'string' && exchange.length > 0, 'Exchange must be a string.')
     } else {
       assert(typeof conId === 'number', 'Contract Id must be a number.')
     }
 
-    this.contract = settings
+    this._contract = { conId, symbol, currency, exchange }
   }
   get() {
     return {
-      conId: this.contract.conId || undefined,
-      symbol: this.contract.symbol || undefined,
+      conId: this._contract.conId || undefined,
+      symbol: this._contract.symbol || undefined,
       secType: SEC_TYPE.STOCK,
-      currency: this.contract.currency || DEFAULT_CURRENCY,
-      exchange: this.contract.exchange || DEFAULT_EXCHANGE
+      currency: this._contract.currency || DEFAULT_CURRENCY,
+      exchange: this._contract.exchange || DEFAULT_EXCHANGE
     }
   }
 }
