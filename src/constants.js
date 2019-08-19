@@ -246,6 +246,17 @@ export const RIGHT = {
 export const DEFAULT_CURRENCY = 'USD'
 export const DEFAULT_EXCHANGE = 'SMART' // let IB to select the best one
 
+export const ORDER_TYPE = {
+  MARKET: 'MKT',
+  LIMIT: 'LMT',
+  STOP: 'STP'
+}
+
+export const TIME_IN_FORCE = {
+  DAY: 'DAY',
+  GTC: 'GTC'
+}
+
 export const FA_DATA_TYPE = {
   GROUPS: 1,
   PROFILES: 2,
