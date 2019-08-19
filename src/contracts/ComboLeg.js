@@ -7,14 +7,9 @@ export default class {
     assert(!ratio || typeof ratio === 'number', 'Ratio must be a number.')
     assert([ACTION.BUY, ACTION.SELL].includes(action), 'Action must either be BUY or SELL.')
 
-    this._contract = { conId, ratio, action, exchange }
-  }
-  get() {
-    return {
-      conId: this._contract.conId,
-      ratio: this._contract.ratio || 1,
-      action: this._contract.action || ACTION.BUY,
-      exchange: this._contract.exchange || DEFAULT_EXCHANGE
-    }
+    this.conId = conId || undefined
+    this.ratio = ratio || 1
+    this.action = action || ACTION.BUY
+    this.exchange = exchange || DEFAULT_EXCHANGE
   }
 }

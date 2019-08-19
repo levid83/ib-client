@@ -14,17 +14,12 @@ export default class {
       assert(typeof conId === 'number', 'Contract Id must be a number.')
     }
 
-    this._contract = { conId, symbol, expiry, currency, exchange }
-  }
-  get() {
-    return {
-      conId: this._contract.conId || undefined,
-      symbol: this._contract.symbol || undefined,
-      secType: SEC_TYPE.FUTURE,
-      expiry: this._contract.expiry || undefined,
-      multiplier: this._contract.multiplier || undefined,
-      currency: this._contract.currency || DEFAULT_CURRENCY,
-      exchange: this._contract.exchange || DEFAULT_EXCHANGE
-    }
+    this.conId = conId || undefined
+    this.symbol = symbol || undefined
+    this.secType = SEC_TYPE.STOCK_OPTION
+    this.expiry = expiry || undefined
+    this.multiplier = multiplier || undefined
+    this.currency = currency || DEFAULT_CURRENCY
+    this.exchange = exchange || DEFAULT_EXCHANGE
   }
 }

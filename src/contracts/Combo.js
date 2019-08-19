@@ -6,16 +6,10 @@ export default class {
     assert(typeof symbol === 'string' && symbol.length > 0, 'Symbol must be a string.')
     assert(Array.isArray(comboLegs) && comboLegs.length > 0, 'Combo Legs must be an array.')
 
-    this._contract = { symbol, comboLegs, currency, exchange }
-  }
-
-  get() {
-    return {
-      symbol: this._contract.symbol,
-      secType: SEC_TYPE.BAG,
-      comboLegs: null,
-      currency: this._contract.currency || DEFAULT_CURRENCY,
-      exchange: this._contract.exchange || DEFAULT_EXCHANGE
-    }
+    this.symbol = symbol || undefined
+    this.secType = SEC_TYPE.BAG
+    this.comboLegs = comboLegs || null
+    this.currency = currency || DEFAULT_CURRENCY
+    this.exchange = exchange || DEFAULT_EXCHANGE
   }
 }
