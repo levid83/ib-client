@@ -32,7 +32,11 @@ class BufferParser {
       try {
         let responseCode = this.readAndShiftInt()
         let responseFunctionName = this._responseCodeToString(responseCode)
-        cb(null, responseFunctionName)
+        if (!responseFunctionName) {
+          cb(new Error('Unknown response code ', responseCode), null)
+        } else {
+          cb(null, responseFunctionName)
+        }
       } catch (e) {
         if (!(e instanceof UnderrunError)) cb(e, null)
         this._restoreLastChunk(bufferSnapshot)
@@ -47,7 +51,7 @@ class BufferParser {
         return key
       }
     }
-    return TICK_TYPE.UNKNOWN
+    return false
   }
 }
 export default BufferParser
