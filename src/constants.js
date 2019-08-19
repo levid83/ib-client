@@ -1,8 +1,5 @@
 export const VERSION = 'twsapi_macunix.970.01'
 
-export const DEFAULT_HOST = '127.0.0.1'
-export const DEFAULT_PORT = 7496
-export const DEFAULT_CLIENT_ID = 0
 export const MAX_REQ_PER_SECOND = 40
 export const QUEUE_RETRY_TIMEOUT_MS = 100
 
@@ -228,7 +225,26 @@ export const MIN_SERVER_VER = {
   MIN_SERVER_VER_HISTORICAL_TICKS: 130
 }
 
-export const BAG_SEC_TYPE = 'BAG'
+export const SEC_TYPE = {
+  STOCK: 'STK',
+  FUTURE: 'FUT',
+  STOCK_OPTION: 'OPT',
+  FUTURE_OPTION: 'FOP',
+  BAG: 'BAG'
+}
+
+export const ACTION = {
+  BUY: 'BUY',
+  SELL: 'SELL'
+}
+
+export const RIGHT = {
+  CALL: 'CALL',
+  PUT: 'PUT'
+}
+
+export const DEFAULT_CURRENCY = 'USD'
+export const DEFAULT_EXCHANGE = 'SMART' // let IB to select the best one
 
 export const FA_DATA_TYPE = {
   GROUPS: 1,
