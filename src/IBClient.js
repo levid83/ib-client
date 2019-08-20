@@ -7,23 +7,18 @@ import Queue from './Queue'
 import MessageEncoder from './MessageEncoder'
 import MessageDecoder from './MessageDecoder'
 
-class IBClient {
+class IBClient extends EventEmitter {
   constructor(options = { socket: null, clientId: null }) {
+    super()
     this._clientId = options.clientId
-    this._eventHandler = new EventEmitter()
-
     this._socket = this._initSocket(new Socket(options.socket))
     this._messageEncoder = new MessageEncoder({
-      eventHandler: this._eventHandler,
-      queue: new Queue({ eventHandler: this._eventHandler, socket: this._socket })
+      eventHandler: this,
+      queue: new Queue({ eventHandler: this, socket: this._socket })
     })
     this._messageDecoder = new MessageDecoder({
-      eventHandler: this._eventHandler
+      eventHandler: this
     })
-  }
-
-  on(event, fn) {
-    this._eventHandler.on(event, fn)
   }
 
   connect() {
