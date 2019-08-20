@@ -583,14 +583,17 @@ class IBClient extends EventEmitter {
 
   _initSocket(socket) {
     socket
-      .onError(err => console.log(err))
-      .onConnected(() => console.log('connected to IB'))
+      .onError(err => this.emit('error', err))
+      .onConnected(() => this.emit('connected'))
       .onServerData(({ serverVersion }) => {
         this._messageEncoder.setServerVersion(serverVersion)
         this._messageDecoder.setServerVersion(serverVersion)
       })
-      .onResponse(data => this._receiveResponse(data))
-      .onClose(err => console.log('disconnected from IB', err ? ' due to a transtion error' : ''))
+      .onResponse(data => {
+        this._receiveResponse(data)
+        this.emit('received', data)
+      })
+      .onClose(err => this.emit('disconnected', err))
 
     return socket
   }
