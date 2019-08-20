@@ -8,8 +8,17 @@ import Future from './contracts/Future'
 import FutureOption from './contracts/FutureOption'
 
 export default class ContractBuilder {
-  constructor() {
-    this.comboLeg = []
+  constructor(contract = {}) {
+    this.conId = contract.conId || undefined
+    this.symbol = contract.symbol || undefined
+    this.secType = contract.secType || undefined
+    this.expiry = contract.expiry || undefined
+    this.strike = contract.strike || undefined
+    this.right = contract.right || undefined
+    this.multiplier = contract.multiplier || undefined
+    this.comboLegs = contract.comboLegs || []
+    this.exchange = contract.exchange || undefined
+    this.currency = contract.currency || undefined
   }
 
   setConId(conId) {

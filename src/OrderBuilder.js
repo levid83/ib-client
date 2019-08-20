@@ -4,7 +4,18 @@ import Limit from './orders/Limit'
 import Stop from './orders/Stop'
 
 export default class OrderBuilder {
-  constructor() {}
+  constructor(order = {}) {
+    this.account = order.account || undefined
+    this.action = order.action || undefined
+    this.quantity = order.quantity || undefined
+    this.orderType = order.orderType || undefined
+    this.limitPrice = order.limitPrice || undefined
+    this.stopPrice = order.stopPrice || undefined
+    this.parentId = order.parentId || undefined
+    this.transmitOrder = order.transmitOrder || undefined
+    this.tif = order.tif || undefined
+    this.outsideRth = order.outsideRth || undefined
+  }
   setAccount(account) {
     this.account = account
     return this

@@ -25,7 +25,19 @@ const order = new OrderBuilder()
   .setLimitPrice(200)
   .build()
 
-brokerClient.on('nextValidId', id => brokerClient.placeOrder(id, contract, order))
+const contract2 = new ContractBuilder({ symbol: 'MCD', secType: 'STK', exchange: 'NYSE' }).build()
+
+const order2 = new OrderBuilder({
+  account: 'DU535418',
+  action: 'BUY',
+  quantity: 1,
+  orderType: 'LMT',
+  limitPrice: 100
+}).build()
+
+brokerClient.on('nextValidId', id => {
+  brokerClient.placeOrder(id, contract, order).placeOrder(++id, contract2, order2)
+})
 
 server.on('error', onError)
 server.listen(port, () => console.log(`server is listening on port ${port}`))
