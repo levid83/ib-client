@@ -16,7 +16,7 @@ export default class {
 
     this.conId = conId || undefined
     this.symbol = symbol || undefined
-    this.secType = SEC_TYPE.STOCK_OPTION
+    this.secType = SEC_TYPE.FUTURE
     this.expiry = expiry || undefined
     this.multiplier = multiplier || undefined
     this.currency = currency || DEFAULT_CURRENCY
