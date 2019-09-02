@@ -1,4 +1,4 @@
-import UnderrunError from './errors'
+import { UnderrunError } from './errors'
 import { TICK_TYPE, INCOMING } from './constants'
 
 class BufferParser {
