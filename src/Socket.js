@@ -60,7 +60,11 @@ export default class extends EventEmitter {
       return val
     })
     let message = tokens.join(EOL) + EOL
-    this._socket.write(message, 'utf8', cb(message))
+    if (!this._socket.write(message, 'utf8')) {
+      this._socket.once('drain', cb(message))
+    } else {
+      process.nextTick(cb(message))
+    }
   }
 
   _wrapSocket(socket) {
