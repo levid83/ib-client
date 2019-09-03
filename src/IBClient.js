@@ -7,6 +7,8 @@ import Queue from './Queue'
 import MessageEncoder from './MessageEncoder'
 import MessageDecoder from './MessageDecoder'
 
+import { BROKER_ERRORS } from './errors'
+
 // Client version history
 //
 // 	6 = Added parentId to orderStatus
@@ -96,9 +98,9 @@ class IBClient extends EventEmitter {
     super()
     this._clientId = options.clientId
     this._socket = this._initSocket(new Socket(options.socket))
+    this._queue = new Queue({ eventHandler: this, socket: this._socket })
     this._messageEncoder = new MessageEncoder({
-      eventHandler: this,
-      queue: new Queue({ eventHandler: this, socket: this._socket })
+      eventHandler: this
     })
     this._messageDecoder = new MessageDecoder({
       eventHandler: this
@@ -115,94 +117,285 @@ class IBClient extends EventEmitter {
   }
 
   sendClientVersion() {
-    this._sendRequest('sendClientVersion', CLIENT_VERSION)
+    let message = this._messageEncoder.encodeMessage({}, 'sendClientVersion', CLIENT_VERSION)
+    this._sendMessage(message)
     return this
   }
 
   sendClientId() {
     assert(Number.isInteger(this._clientId), '"clientId" must be an integer - ' + this._clientId)
-    this._sendRequest('sendClientId', this._clientId)
+    let message = this._messageEncoder.encodeMessage({}, 'sendClientId', this._clientId)
+    this._sendMessage(message)
     return this
   }
 
-  calculateImpliedVolatility(reqId, contract, optionPrice, underPrice) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('calculateImpliedVolatility', reqId, contract, optionPrice, underPrice)
-    return this
-  }
-  calculateOptionPrice(reqId, contract, volatility, underPrice) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('calculateOptionPrice', reqId, contract, volatility, underPrice)
-    return this
-  }
-  cancelAccountSummary(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('cancelAccountSummary', reqId)
-    return this
-  }
-  cancelPositionsMulti(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('cancelPositionsMulti', reqId)
-    return this
-  }
-  cancelAccountUpdatesMulti(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('cancelAccountUpdatesMulti', reqId)
-    return this
-  }
-  cancelCalculateImpliedVolatility(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('cancelCalculateImpliedVolatility', reqId)
-    return this
-  }
-  cancelCalculateOptionPrice(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('cancelCalculateOptionPrice', reqId)
-    return this
-  }
-  cancelFundamentalData(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('cancelFundamentalData', reqId)
-    return this
-  }
-  cancelHistoricalData(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    this._sendRequest('cancelHistoricalData', tickerId)
-    return this
-  }
-  cancelMktData(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    this._sendRequest('cancelMktData', tickerId)
-    return this
-  }
-  cancelMktDepth(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    this._sendRequest('cancelMktDepth', tickerId)
-    return this
-  }
-  cancelNewsBulletins() {
-    this._sendRequest('cancelNewsBulletins')
-    return this
-  }
-  cancelOrder(id) {
-    assert(Number.isInteger(id), '"id" must be an integer - ' + id)
-    this._sendRequest('cancelOrder', id)
-    return this
-  }
-  cancelPositions() {
-    this._sendRequest('cancelPositions')
-    return this
-  }
-  cancelRealTimeBars(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    this._sendRequest('cancelRealTimeBars', tickerId)
-    return this
-  }
   cancelScannerSubscription(tickerId) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    this._sendRequest('cancelScannerSubscription', tickerId)
+    let message = this._messageEncoder.encodeMessage(
+      { id: tickerId, error: BROKER_ERRORS.FAIL_SEND_CANSCANNER },
+      'cancelScannerSubscription',
+      tickerId
+    )
+    this._sendMessage(message)
     return this
   }
+
+  reqScannerParameters() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_REQSCANNERPARAMETERS
+      },
+      'reqScannerParameters'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqScannerSubscription(
+    tickerId,
+    subscription,
+    scannerSubscriptionOptions,
+    scannerSubscriptionFilterOptions
+  ) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.UPDATE_TWS
+      },
+      'reqScannerSubscription',
+      tickerId,
+      subscription,
+      scannerSubscriptionOptions,
+      scannerSubscriptionFilterOptions
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqMktData(tickerId, contract, genericTickList, snapshot, regulatorySnapshot, mktDataOptions) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    assert(
+      typeof genericTickList === 'string',
+      '"genericTickList" must be a string - ' + genericTickList
+    )
+    assert(typeof snapshot === 'boolean', '"snapshot" must be a boolean - ' + snapshot)
+    assert(
+      typeof regulatorySnapshot === 'boolean',
+      '"regulatorySnapshot" must be a boolean - ' + regulatorySnapshot
+    )
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_REQMKT
+      },
+      'reqMktData',
+      tickerId,
+      contract,
+      genericTickList,
+      snapshot,
+      regulatorySnapshot,
+      mktDataOptions
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelHistoricalData(tickerId) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_CANHISTDATA
+      },
+      'cancelHistoricalData',
+      tickerId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelRealTimeBars(tickerId) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_CANRTBARS
+      },
+      'cancelRealTimeBars',
+      tickerId
+    )
+    this._sendMessage(message)
+    return this
+  }
+  reqHistoricalData(
+    tickerId,
+    contract,
+    endDateTime,
+    durationStr,
+    barSizeSetting,
+    whatToShow,
+    useRTH,
+    formatDate,
+    keepUpToDate,
+    chartOptions
+  ) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    assert(typeof endDateTime === 'string', '"endDateTime" must be a string - ' + endDateTime)
+    assert(typeof durationStr === 'string', '"durationStr" must be a string - ' + durationStr)
+    assert(
+      typeof barSizeSetting === 'string',
+      '"barSizeSetting" must be a string - ' + barSizeSetting
+    )
+    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
+    assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
+    assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
+    assert(typeof keepUpToDate === 'boolean', '"keepUpToDate" must be an boolean - ' + keepUpToDate)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_REQHISTDATA
+      },
+      'reqHistoricalData',
+      tickerId,
+      contract,
+      endDateTime,
+      durationStr,
+      barSizeSetting,
+      whatToShow,
+      useRTH,
+      formatDate,
+      keepUpToDate,
+      chartOptions
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqHeadTimestamp(reqId, contract, whatToShow, useRTH, formatDate) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
+    assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
+    assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQHEADTIMESTAMP
+      },
+      'reqHeadTimestamp',
+      reqId,
+      contract,
+      whatToShow,
+      useRTH,
+      formatDate
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelHeadTimestamp(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANHEADTIMESTAMP
+      },
+      'cancelHeadTimestamp',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqRealTimeBars(tickerId, contract, barSize, whatToShow, useRTH, realTimeBarsOptions) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    assert(Number.isInteger(barSize), '"barSize" must be an integer - ' + barSize)
+    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
+    assert(typeof useRTH === 'boolean', '"useRTH" must be a boolean - ' + useRTH)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_REQRTBARS
+      },
+      'reqRealTimeBars',
+      tickerId,
+      contract,
+      barSize,
+      whatToShow,
+      useRTH,
+      realTimeBarsOptions
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqContractDetails(reqId, contract) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQCONTRACT
+      },
+      'reqContractDetails',
+      reqId,
+      contract
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqMktDepth(tickerId, contract, numRows, isSmartDepth, mktDepthOptions) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    assert(Number.isInteger(numRows), '"numRows" must be an integer - ' + numRows)
+    assert(typeof isSmartDepth === 'boolean', '"isSmartDepth" must be a boolean - ' + isSmartDepth)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_REQMKTDEPTH
+      },
+      'reqMktDepth',
+      tickerId,
+      contract,
+      numRows,
+      isSmartDepth,
+      mktDepthOptions
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelMktData(tickerId) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_CANMKT
+      },
+      'cancelMktData',
+      tickerId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelMktDepth(tickerId, isSmartDepth) {
+    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    assert(typeof isSmartDepth === 'boolean', '"isSmartDepth" must be a boolean - ' + isSmartDepth)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_CANMKTDEPTH
+      },
+      'cancelMktDepth',
+      tickerId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
   exerciseOptions(tickerId, contract, exerciseAction, exerciseQuantity, account, override) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     assert(
@@ -215,7 +408,11 @@ class IBClient extends EventEmitter {
     )
     assert(typeof account === 'string', '"account" must be a string - ' + account)
     assert(Number.isInteger(override), '"override" must be an integer - ' + override)
-    this._sendRequest(
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_REQMKT
+      },
       'exerciseOptions',
       tickerId,
       contract,
@@ -224,89 +421,360 @@ class IBClient extends EventEmitter {
       account,
       override
     )
+    this._sendMessage(message)
     return this
   }
+
   placeOrder(id, contract, order) {
     assert(Number.isInteger(id), '"id" must be an integer - ' + id)
-    this._sendRequest('placeOrder', id, contract, order)
-    return this
-  }
-  replaceFA(faDataType, xml) {
-    assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
-    assert(typeof xml === 'string', '"xml" must be a string - ' + xml)
-    this._sendRequest('replaceFA', faDataType, xml)
-    return this
-  }
-  reqAccountSummary(reqId, group, tags) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof group === 'string', '"group" must be a string - ' + group)
-    assert(
-      Array.isArray(tags) || typeof tags === 'string',
-      '"tags" must be array or string - ' + tags
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: id,
+        error: BROKER_ERRORS.FAIL_SEND_ORDER
+      },
+      'placeOrder',
+      id,
+      contract,
+      order
     )
-    if (Array.isArray(tags)) {
-      tags = tags.join(',')
-    }
-    this._sendRequest('reqAccountSummary', reqId, group, tags)
+    this._sendMessage(message)
     return this
   }
+
   reqAccountUpdates(subscribe, acctCode) {
     assert(typeof subscribe === 'boolean', '"subscribe" must be a boolean - ' + subscribe)
     assert(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
-    this._sendRequest('reqAccountUpdates', subscribe, acctCode)
-    return this
-  }
-  reqAccountUpdatesMulti(reqId, acctCode, modelCode, ledgerAndNLV) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
-    assert(
-      typeof modelCode === 'string' || typeof modelCode === 'object',
-      '"modelCode" must be a string or null - ' + modelCode
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_ACCT
+      },
+      'reqAccountUpdates',
+      subscribe,
+      acctCode
     )
-    assert(typeof ledgerAndNLV === 'boolean', '"ledgerAndNLV" must be a boolean - ' + ledgerAndNLV)
-    this._sendRequest('reqAccountUpdatesMulti', reqId, acctCode, modelCode, ledgerAndNLV)
+    this._sendMessage(message)
     return this
   }
-  reqAllOpenOrders() {
-    this._sendRequest('reqAllOpenOrders')
-    return this
-  }
-  reqAutoOpenOrders(bAutoBind) {
-    assert(typeof bAutoBind === 'boolean', '"bAutoBind" must be a boolean - ' + bAutoBind)
-    this._sendRequest('reqAutoOpenOrders', bAutoBind)
-    return this
-  }
-  reqContractDetails(reqId, contract) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('reqContractDetails', reqId, contract)
-    return this
-  }
-  reqCurrentTime() {
-    this._sendRequest('reqCurrentTime')
-    return this
-  }
+
   reqExecutions(reqId, filter) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('reqExecutions', reqId, filter)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_EXEC
+      },
+      'reqExecutions',
+      reqId,
+      filter
+    )
+    this._sendMessage(message)
     return this
   }
-  reqFundamentalData(reqId, contract, reportType) {
+
+  cancelOrder(id) {
+    assert(Number.isInteger(id), '"id" must be an integer - ' + id)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: id,
+        error: BROKER_ERRORS.FAIL_SEND_CORDER
+      },
+      'cancelOrder',
+      id
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqOpenOrders() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_OORDER
+      },
+      'reqOpenOrders'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqIds(numIds) {
+    assert(Number.isInteger(numIds), '"numIds" must be an integer - ' + numIds)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_CORDER
+      },
+      'reqIds',
+      numIds
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqNewsBulletins(allMsgs) {
+    assert(typeof allMsgs === 'boolean', '"allMsgs" must be a boolean - ' + allMsgs)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_CORDER
+      },
+      'reqNewsBulletins',
+      allMsgs
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelNewsBulletins() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_CORDER
+      },
+      'cancelNewsBulletins'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  setServerLogLevel(logLevel) {
+    assert(Number.isInteger(logLevel), '"logLevel" must be an integer - ' + logLevel)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_SERVER_LOG_LEVEL
+      },
+      'setServerLogLevel',
+      logLevel
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqAutoOpenOrders(bAutoBind) {
+    assert(typeof bAutoBind === 'boolean', '"bAutoBind" must be a boolean - ' + bAutoBind)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_OORDER
+      },
+      'reqAutoOpenOrders',
+      bAutoBind
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqAllOpenOrders() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_OORDER
+      },
+      'reqAllOpenOrders'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqManagedAccts() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_OORDER
+      },
+      'reqManagedAccts'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  requestFA(faDataType) {
+    assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_FA_REQUEST
+      },
+      'requestFA',
+      faDataType
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  replaceFA(faDataType, xml) {
+    assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
+    assert(typeof xml === 'string', '"xml" must be a string - ' + xml)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_FA_REPLACE
+      },
+      'replaceFA',
+      faDataType,
+      xml
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqCurrentTime() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQCURRTIME
+      },
+      'reqCurrentTime'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqFundamentalData(reqId, contract, reportType, fundamentalDataOptions = null) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(typeof reportType === 'string', '"reportType" must be a string - ' + reportType)
-    this._sendRequest('reqFundamentalData', reqId, contract, reportType)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQFUNDDATA
+      },
+      'reqFundamentalData',
+      reqId,
+      contract,
+      reportType,
+      fundamentalDataOptions
+    )
+    this._sendMessage(message)
     return this
   }
-  reqGlobalCancel() {
-    this._sendRequest('reqGlobalCancel')
-    return this
-  }
-  reqHeadTimestamp(reqId, contract, whatToShow, useRTH, formatDate) {
+
+  cancelFundamentalData(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
-    assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
-    assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
-    this._sendRequest('reqHeadTimestamp', reqId, contract, whatToShow, useRTH, formatDate)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: FAIL_SEND_CANFUNDDATA
+      },
+      'cancelFundamentalData',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
   }
+
+  calculateImpliedVolatility(
+    reqId,
+    contract,
+    optionPrice,
+    underPrice,
+    impliedVolatilityOptions = null
+  ) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQCALCIMPLIEDVOLAT
+      },
+      'calculateImpliedVolatility',
+      reqId,
+      contract,
+      optionPrice,
+      underPrice,
+      impliedVolatilityOptions
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelCalculateImpliedVolatility(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANCALCIMPLIEDVOLAT
+      },
+      'cancelCalculateImpliedVolatility',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  calculateOptionPrice(reqId, contract, volatility, underPrice, optionPriceOptions = null) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQCALCOPTIONPRICE
+      },
+      'calculateOptionPrice',
+      reqId,
+      contract,
+      volatility,
+      underPrice,
+      optionPriceOptions
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelCalculateOptionPrice(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANCALCOPTIONPRICE
+      },
+      'cancelCalculateOptionPrice',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqGlobalCancel() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQGLOBALCANCEL
+      },
+      'reqGlobalCancel'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqMarketDataType(marketDataType) {
+    assert(
+      Number.isInteger(marketDataType),
+      '"marketDataType" must be an integer - ' + marketDataType
+    )
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQMARKETDATATYPE
+      },
+      'reqMarketDataType',
+      marketDataType
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqPositions() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQPOSITIONS
+      },
+      'reqPositions'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
   reqSecDefOptParams(reqId, underlyingSymbol, futFopExchange, underlyingSecType, underlyingConId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(
@@ -325,7 +793,11 @@ class IBClient extends EventEmitter {
       Number.isInteger(underlyingConId),
       '"underlyingConId" must be an integer - ' + underlyingConId
     )
-    this._sendRequest(
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQSECDEFOPTPARAMS
+      },
       'reqSecDefOptParams',
       reqId,
       underlyingSymbol,
@@ -333,44 +805,507 @@ class IBClient extends EventEmitter {
       underlyingSecType,
       underlyingConId
     )
+    this._sendMessage(message)
     return this
   }
-  reqHistoricalData(
-    tickerId,
-    contract,
-    endDateTime,
-    durationStr,
-    barSizeSetting,
-    whatToShow,
-    useRTH,
-    formatDate,
-    keepUpToDate
-  ) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(typeof endDateTime === 'string', '"endDateTime" must be a string - ' + endDateTime)
-    assert(typeof durationStr === 'string', '"durationStr" must be a string - ' + durationStr)
+
+  reqSoftDollarTiers(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQSOFTDOLLARTIERS
+      },
+      'reqSoftDollarTiers',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelPositions() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_CANPOSITIONS
+      },
+      'cancelPositions'
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqPositionsMulti(reqId, account, modelCode) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof account === 'string', '"account" must be a string - ' + account)
     assert(
-      typeof barSizeSetting === 'string',
-      '"barSizeSetting" must be a string - ' + barSizeSetting
+      typeof modelCode === 'string' || typeof modelCode === 'object',
+      '"modelCode" must be a string or null - ' + modelCode
     )
-    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
-    assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
-    assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
-    assert(typeof keepUpToDate === 'boolean', '"keepUpToDate" must be an boolean - ' + keepUpToDate)
-    this._sendRequest(
-      'reqHistoricalData',
-      tickerId,
-      contract,
-      endDateTime,
-      durationStr,
-      barSizeSetting,
-      whatToShow,
-      useRTH,
-      formatDate,
-      keepUpToDate
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQPOSITIONSMULTI
+      },
+      'reqPositionsMulti',
+      reqId,
+      account,
+      modelCode
     )
+    this._sendMessage(message)
     return this
   }
+
+  cancelPositionsMulti(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANPOSITIONSMULTI
+      },
+      'cancelPositionsMulti',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelAccountUpdatesMulti(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANACCOUNTUPDATESMULTI
+      },
+      'cancelAccountUpdatesMulti',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqAccountUpdatesMulti(reqId, acctCode, modelCode, ledgerAndNLV) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
+    assert(
+      typeof modelCode === 'string' || typeof modelCode === 'object',
+      '"modelCode" must be a string or null - ' + modelCode
+    )
+    assert(typeof ledgerAndNLV === 'boolean', '"ledgerAndNLV" must be a boolean - ' + ledgerAndNLV)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQACCOUNTUPDATESMULTI
+      },
+      'reqAccountUpdatesMulti',
+      reqId,
+      acctCode,
+      modelCode,
+      ledgerAndNLV
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqAccountSummary(reqId, group, tags) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof group === 'string', '"group" must be a string - ' + group)
+    assert(
+      Array.isArray(tags) || typeof tags === 'string',
+      '"tags" must be array or string - ' + tags
+    )
+    if (Array.isArray(tags)) {
+      tags = tags.join(',')
+    }
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQACCOUNTDATA
+      },
+      'reqAccountSummary',
+      reqId,
+      group,
+      tags
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  cancelAccountSummary(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANACCOUNTDATA
+      },
+      'cancelAccountSummary',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  verifyRequest(apiName, apiVersion) {
+    assert(typeof apiName === 'string', '"apiName" must be a string - ' + apiName)
+    assert(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: EClientErrors.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_VERIFYREQUEST
+      },
+      'verifyRequest',
+      apiName,
+      apiVersion
+    )
+
+    this._sendMessage(message)
+    return this
+  }
+
+  verifyMessage(apiData) {
+    assert(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: EClientErrors.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_VERIFYMESSAGE
+      },
+      'verifyMessage',
+      apiData
+    )
+
+    this._sendMessage(message)
+    return this
+  }
+
+  verifyAndAuthRequest(apiName, apiVersion, opaqueIsvKey) {
+    assert(typeof apiName === 'string', '"apiName" must be a string - ' + apiName)
+    assert(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
+    assert(typeof opaqueIsvKey === 'string', '"opaqueIsvKey" must be a string - ' + opaqueIsvKey)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: EClientErrors.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_VERIFYANDAUTHREQUEST
+      },
+      'verifyAndAuthRequest',
+      apiName,
+      apiVersion,
+      opaqueIsvKey
+    )
+
+    this._sendMessage(message)
+    return this
+  }
+
+  verifyAndAuthMessage(apiData, xyzResponse) {
+    assert(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
+    assert(typeof xyzResponse === 'string', '"xyzResponse" must be a string - ' + xyzResponse)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: EClientErrors.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_VERIFYANDAUTHMESSAGE
+      },
+      'verifyAndAuthMessage',
+      apiData,
+      xyzResponse
+    )
+
+    this._sendMessage(message)
+    return this
+  }
+
+  queryDisplayGroups(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_QUERYDISPLAYGROUPS
+      },
+      'queryDisplayGroups',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  subscribeToGroupEvents(reqId, groupId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof groupId === 'string', '"groupId" must be an integer - ' + groupId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_SUBSCRIBETOGROUPEVENTS
+      },
+      'subscribeToGroupEvents',
+      reqId,
+      groupId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  updateDisplayGroup(reqId, contractInfo) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof contractInfo === 'string', '"contractInfo" must be an string - ' + contractInfo)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_UPDATEDISPLAYGROUP
+      },
+      'updateDisplayGroup',
+      reqId,
+      contractInfo
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  unsubscribeFromGroupEvents(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_UNSUBSCRIBEFROMGROUPEVENTS
+      },
+      'unsubscribeToGroupEvents',
+      reqId
+    )
+    this._sendMessage(message)
+    return this
+  }
+
+  reqMatchingSymbols(reqId, pattern) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof pattern === 'string', '"pattern" must be a string - ' + pattern)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQMATCHINGSYMBOLS
+      },
+      'reqMatchingSymbols',
+      reqId,
+      pattern
+    )
+    this._sendMessage(message)
+  }
+
+  reqFamilyCodes() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQFAMILYCODES
+      },
+      'reqFamilyCodes',
+      reqId,
+      pattern
+    )
+    this._sendMessage(message)
+  }
+
+  reqMktDepthExchanges() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQMKTDEPTHEXCHANGES
+      },
+      'reqMktDepthExchanges'
+    )
+    this._sendMessage(message)
+  }
+
+  reqSmartComponents(reqId, bboExchange) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof bboExchange === 'string', '"bboExchange" must be a string - ' + bboExchange)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQSMARTCOMPONENTS
+      },
+      'reqSmartComponents',
+      reqId,
+      bboExchange
+    )
+    this._sendMessage(message)
+  }
+
+  reqNewsProviders() {
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQNEWSPROVIDERS
+      },
+      'reqNewsProviders'
+    )
+    this._sendMessage(message)
+  }
+
+  reqNewsArticle(reqId, providerCode, articleId = null, newsArticleOptions) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof providerCode === 'string', '"providerCode" must be a string - ' + providerCode)
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQNEWSARTICLE
+      },
+      'reqNewsArticle',
+      reqId,
+      providerCode,
+      articleId,
+      newsArticleOptions
+    )
+    this._sendMessage(message)
+  }
+
+  reqHistoricalNews(
+    reqId,
+    conId,
+    providerCode,
+    startDateTime,
+    endDateTime,
+    totalResults,
+    historicalNewsOptions = null
+  ) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(Number.isInteger(conId), '"conId" must be an integer - ' + conId)
+
+    assert(typeof providerCode === 'string', '"providerCode" must be a string - ' + providerCode)
+    assert(typeof startDateTime === 'string', '"startDateTime" must be a string - ' + providerCode)
+    assert(typeof endDateTime === 'string', '"endDateTime" must be a string - ' + providerCode)
+    assert(Number.isInteger(totalResults), '"totalResults" must be an integer - ' + totalResults)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQHISTORICALNEWS
+      },
+      'reqHistoricalNews',
+      reqId,
+      conId,
+      providerCode,
+      startDateTime,
+      endDateTime,
+      totalResults,
+      historicalNewsOptions
+    )
+    this._sendMessage(message)
+  }
+
+  reqHistogramData(reqId, contract, useRTH, timePeriod) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof useRTH === 'boolean', '"useRTH" must be an boolean - ' + useRTH)
+    assert(typeof timePeriod === 'string', '"timePeriod" must be a string - ' + timePeriod)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQHISTDATA
+      },
+      'reqHistogramData',
+      reqId,
+      contract,
+      useRTH,
+      timePeriod
+    )
+    this._sendMessage(message)
+  }
+
+  cancelHistogramData(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANHISTDATA
+      },
+      'cancelHistogramData',
+      reqId
+    )
+    this._sendMessage(message)
+  }
+
+  reqMarketRule(marketRuleId) {
+    assert(Number.isInteger(marketRuleId), '"marketRuleId" must be an integer - ' + marketRuleId)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: BROKER_ERRORS.NO_VALID_ID,
+        error: BROKER_ERRORS.FAIL_SEND_REQMARKETRULE
+      },
+      'reqMarketRule',
+      marketRuleId
+    )
+    this._sendMessage(message)
+  }
+
+  reqPnL(reqId, account, modelCode) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof account === 'string', '"account" must be a string - ' + account)
+    assert(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQPNL
+      },
+      'reqPnL',
+      reqId,
+      account,
+      modelCode
+    )
+    this._sendMessage(message)
+  }
+
+  cancelPnL(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANPNL
+      },
+      'reqPnL',
+      reqId
+    )
+    this._sendMessage(message)
+  }
+
+  reqPnLSingle(reqId, account, modelCode, conId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    assert(typeof account === 'string', '"account" must be a string - ' + account)
+    assert(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
+    assert(Number.isInteger(conId), '"conId" must be an integer - ' + conId)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_REQPNL_SINGLE
+      },
+      'reqPnLSingle',
+      reqId,
+      account,
+      modelCode,
+      conId
+    )
+    this._sendMessage(message)
+  }
+
+  cancelPnLSingle(reqId) {
+    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: reqId,
+        error: BROKER_ERRORS.FAIL_SEND_CANPNL_SINGLE
+      },
+      'cancelPnLSingle',
+      reqId
+    )
+    this._sendMessage(message)
+  }
+
   reqHistoricalTicks(
     tickerId,
     contract,
@@ -379,7 +1314,8 @@ class IBClient extends EventEmitter {
     numberOfTicks,
     whatToShow,
     useRTH,
-    ignoreSize
+    ignoreSize,
+    miscOptions
   ) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     if ((startDateTime && endDateTime) || (!startDateTime && !endDateTime)) {
@@ -394,7 +1330,11 @@ class IBClient extends EventEmitter {
     assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
     assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
     assert(typeof ignoreSize === 'boolean', '"ignoreSize" must be an boolean - ' + ignoreSize)
-    this._sendRequest(
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_HISTORICAL_TICK
+      },
       'reqHistoricalTicks',
       tickerId,
       contract,
@@ -403,140 +1343,49 @@ class IBClient extends EventEmitter {
       numberOfTicks,
       whatToShow,
       useRTH,
-      ignoreSize
+      ignoreSize,
+      miscOptions
     )
+    this._sendMessage(message)
     return this
   }
+
   reqTickByTickData(tickerId, contract, tickType, numberOfTicks, ignoreSize) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     assert(typeof tickType === 'string', '"tickType" must be a string - ' + tickType)
     assert(Number.isInteger(numberOfTicks), '"numberOfTicks" must be a number - ' + numberOfTicks)
     assert(typeof ignoreSize === 'boolean', '"ignoreSize" must be an boolean - ' + ignoreSize)
-    this._sendRequest('reqTickByTickData', tickerId, contract, tickType, numberOfTicks, ignoreSize)
-    return this
-  }
-  cancelTickByTickData(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    this._sendRequest('cancelTickByTickData', tickerId)
-    return this
-  }
-  reqIds(numIds) {
-    assert(Number.isInteger(numIds), '"numIds" must be an integer - ' + numIds)
-    this._sendRequest('reqIds', numIds)
-    return this
-  }
-  reqManagedAccts() {
-    this._sendRequest('reqManagedAccts')
-    return this
-  }
-  reqMarketDataType(marketDataType) {
-    assert(
-      Number.isInteger(marketDataType),
-      '"marketDataType" must be an integer - ' + marketDataType
-    )
-    this._sendRequest('reqMarketDataType', marketDataType)
-    return this
-  }
-  reqMktData(tickerId, contract, genericTickList, snapshot, regulatorySnapshot) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(
-      typeof genericTickList === 'string',
-      '"genericTickList" must be a string - ' + genericTickList
-    )
-    assert(typeof snapshot === 'boolean', '"snapshot" must be a boolean - ' + snapshot)
-    assert(
-      typeof regulatorySnapshot === 'boolean',
-      '"regulatorySnapshot" must be a boolean - ' + regulatorySnapshot
-    )
-    this._sendRequest(
-      'reqMktData',
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_REQTICKBYTICK
+      },
+      'reqTickByTickData',
       tickerId,
       contract,
-      genericTickList,
-      snapshot,
-      regulatorySnapshot
+      tickType,
+      numberOfTicks,
+      ignoreSize
     )
+    this._sendMessage(message)
     return this
   }
-  reqMktDepth(tickerId, contract, numRows) {
+
+  cancelTickByTickData(tickerId) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(Number.isInteger(numRows), '"numRows" must be an integer - ' + numRows)
-    this._sendRequest('reqMktDepth', tickerId, contract, numRows)
-    return this
-  }
-  reqNewsBulletins(allMsgs) {
-    assert(typeof allMsgs === 'boolean', '"allMsgs" must be a boolean - ' + allMsgs)
-    this._sendRequest('reqNewsBulletins', allMsgs)
-    return this
-  }
-  reqOpenOrders() {
-    this._sendRequest('reqOpenOrders')
-    return this
-  }
-  reqPositions() {
-    this._sendRequest('reqPositions')
-    return this
-  }
-  // input params account here is acctCode, we name it account to be consistent with IB document
-  reqPositionsMulti(reqId, account, modelCode) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof account === 'string', '"account" must be a string - ' + account)
-    assert(
-      typeof modelCode === 'string' || typeof modelCode === 'object',
-      '"modelCode" must be a string or null - ' + modelCode
+    let message = this._messageEncoder.encodeMessage(
+      {
+        id: tickerId,
+        error: BROKER_ERRORS.FAIL_SEND_CANTICKBYTICK
+      },
+      'cancelTickByTickData',
+      tickerId
     )
-    this._sendRequest('reqPositionsMulti', reqId, account, modelCode)
+    this._sendMessage(message)
     return this
   }
-  reqRealTimeBars(tickerId, contract, barSize, whatToShow, useRTH) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(Number.isInteger(barSize), '"barSize" must be an integer - ' + barSize)
-    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
-    assert(typeof useRTH === 'boolean', '"useRTH" must be a boolean - ' + useRTH)
-    this._sendRequest('reqRealTimeBars', tickerId, contract, barSize, whatToShow, useRTH)
-    return this
-  }
-  reqScannerParameters() {
-    this._sendRequest('reqScannerParameters')
-    return this
-  }
-  reqScannerSubscription(tickerId, subscription) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    this._sendRequest('reqScannerSubscription', tickerId, subscription)
-    return this
-  }
-  requestFA(faDataType) {
-    assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
-    this._sendRequest('requestFA', faDataType)
-    return this
-  }
-  setServerLogLevel(logLevel) {
-    assert(Number.isInteger(logLevel), '"logLevel" must be an integer - ' + logLevel)
-    this._sendRequest('setServerLogLevel', logLevel)
-    return this
-  }
-  queryDisplayGroups(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('queryDisplayGroups', reqId)
-    return this
-  }
-  updateDisplayGroup(reqId, contractInfo) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof contractInfo === 'string', '"contractInfo" must be an string - ' + contractInfo)
-    this._sendRequest('updateDisplayGroup', reqId, contractInfo)
-    return this
-  }
-  subscribeToGroupEvents(reqId, groupId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof groupId === 'string', '"groupId" must be an integer - ' + groupId)
-    this._sendRequest('subscribeToGroupEvents', reqId, groupId)
-    return this
-  }
-  unsubscribeToGroupEvents(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    this._sendRequest('unsubscribeToGroupEvents', reqId)
-    return this
-  }
+
+  // --------
 
   saveTick(ticker, tickType, value) {
     switch (tickType) {
@@ -682,8 +1531,8 @@ class IBClient extends EventEmitter {
     return socket
   }
 
-  _sendRequest() {
-    this._messageEncoder.sendMessage(this._messageEncoder.encodeMessage(...arguments))
+  _sendMessage(message) {
+    this._queue.push(message)
   }
 
   _receiveResponse(response) {

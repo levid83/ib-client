@@ -1541,7 +1541,6 @@ class MessageEncoder {
         ]
     }
     
-
     cancelPositions() {
         if (this._serverVersion < MIN_SERVER_VER.ACCT_SUMMARY) {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support position cancellation.')
@@ -1614,12 +1613,10 @@ class MessageEncoder {
 
         return buffer
     }
-    ///--------------------------
 
-
-    verifyRequest(apiName, apiVersion ) {
+    verifyRequest(apiName, apiVersion) {
         if (this._serverVersion < MIN_SERVER_VER.LINKING) {
-            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support verification request.')
+            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS, 'It does not support verification request.')
         }
 
         /*if (!extraAuth) {
@@ -1627,15 +1624,14 @@ class MessageEncoder {
         }*/
 
         let version = 1
-        let buffer = [OUTGOING.VERIFY_REQUEST, version, apiName, apiVersion ]
+        let buffer = [OUTGOING.VERIFY_REQUEST, version, apiName, apiVersion]
 
         return buffer
     }
 
-
     verifyMessage(apiData) {
         if (this._serverVersion < MIN_SERVER_VER.LINKING) {
-            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support verification message sending.')
+            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS, 'It does not support verification message sending.')
         }
 
         let version = 1
@@ -1644,10 +1640,9 @@ class MessageEncoder {
         return buffer
     }
 
-
     verifyAndAuthRequest(apiName, apiVersion, opaqueIsvKey) {
         if (this._serverVersion < MIN_SERVER_VER.LINKING_AUTH) {
-            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support verification request.')
+            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS, 'It does not support verification request.')
         }
 
         /*if (!extraAuth) {
@@ -1662,7 +1657,7 @@ class MessageEncoder {
 
     verifyAndAuthMessage(apiData, xyzResponse) {
         if (this._serverVersion < MIN_SERVER_VER.LINKING_AUTH) {
-            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support verification message sending.')
+            return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS, 'It does not support verification message sending.')
         }
 
         let version = 1
@@ -1670,8 +1665,6 @@ class MessageEncoder {
 
         return buffer
     }
-
-    //------------------------------
 
     queryDisplayGroups(reqId) {
 
