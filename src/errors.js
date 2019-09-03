@@ -1,5 +1,5 @@
 export const BROKER_ERRORS = {
-  NO_VALID_ID: { code: -1, message: '' },
+  NO_VALID_ID: -1,
 
   ALREADY_CONNECTED: { code: 501, message: 'Already connected.' },
   CONNECT_FAIL: {
@@ -128,6 +128,14 @@ export const BROKER_ERRORS = {
   FAIL_SEND_HISTORICAL_TICK: { code: 569, message: 'Request Historical Ticks Sending Error - ' },
   FAIL_SEND_REQTICKBYTICK: { code: 570, message: 'Request Tick-By-Tick Sending Error - ' },
   FAIL_SEND_CANTICKBYTICK: { code: 571, message: 'Cancel Tick-By-Tick Sending Error - ' }
+}
+
+export class BrokerError extends Error {
+  constructor(error) {
+    super(error.message)
+    this.code = error.code || null
+    this.id = error.id || -1
+  }
 }
 
 export class UnderrunError extends Error {
