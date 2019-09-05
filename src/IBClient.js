@@ -1,114 +1,60 @@
 import assert, { fail } from 'assert'
 import { EventEmitter } from 'events'
-
-import { CLIENT_VERSION } from './constants'
 import Socket from './Socket'
-import Queue from './Queue'
+import OutboundQueue from './OutboundQueue'
+import InboundQueue from './InboundQueue'
 import MessageEncoder from './MessageEncoder'
 import MessageDecoder from './MessageDecoder'
 
 import { BROKER_ERRORS } from './errors'
-
-// Client version history
-//
-// 	6 = Added parentId to orderStatus
-// 	7 = The new execDetails event returned for an order filled status and reqExecDetails
-//     Also market depth is available.
-// 	8 = Added lastFillPrice to orderStatus() event and permId to execution details
-//  9 = Added 'averageCost', 'unrealizedPNL', and 'unrealizedPNL' to updatePortfolio event
-// 10 = Added 'serverId' to the 'open order' & 'order status' events.
-//      We send back all the API open orders upon connection.
-//      Added new methods reqAllOpenOrders, reqAutoOpenOrders()
-//      Added FA support - reqExecution has filter.
-//                       - reqAccountUpdates takes acct code.
-// 11 = Added permId to openOrder event.
-// 12 = requesting open order attributes ignoreRth, hidden, and discretionary
-// 13 = added goodAfterTime
-// 14 = always send size on bid/ask/last tick
-// 15 = send allocation description string on openOrder
-// 16 = can receive account name in account and portfolio updates, and fa params in openOrder
-// 17 = can receive liquidation field in exec reports, and notAutoAvailable field in mkt data
-// 18 = can receive good till date field in open order messages, and request intraday backfill
-// 19 = can receive rthOnly flag in ORDER_STATUS
-// 20 = expects TWS time string on connection after server version >= 20.
-// 21 = can receive bond contract details.
-// 22 = can receive price magnifier in version 2 contract details message
-// 23 = support for scanner
-// 24 = can receive volatility order parameters in open order messages
-// 25 = can receive HMDS query start and end times
-// 26 = can receive option vols in option market data messages
-// 27 = can receive delta neutral order type and delta neutral aux price in place order version 20: API 8.85
-// 28 = can receive option model computation ticks: API 8.9
-// 29 = can receive trail stop limit price in open order and can place them: API 8.91
-// 30 = can receive extended bond contract def, new ticks, and trade count in bars
-// 31 = can receive EFP extensions to scanner and market data, and combo legs on open orders
-//    ; can receive RT bars
-// 32 = can receive TickType.LAST_TIMESTAMP
-//    ; can receive "whyHeld" in order status messages
-// 33 = can receive ScaleNumComponents and ScaleComponentSize is open order messages
-// 34 = can receive whatIf orders / order state
-// 35 = can receive contId field for Contract objects
-// 36 = can receive outsideRth field for Order objects
-// 37 = can receive clearingAccount and clearingIntent for Order objects
-// 38 = can receive multiplier and primaryExchange in portfolio updates
-//    ; can receive cumQty and avgPrice in execution
-//    ; can receive fundamental data
-//    ; can receive deltaNeutralContract for Contract objects
-//    ; can receive reqId and end marker in contractDetails/bondContractDetails
-//    ; can receive ScaleInitComponentSize and ScaleSubsComponentSize for Order objects
-// 39 = can receive underConId in contractDetails
-// 40 = can receive algoStrategy/algoParams in openOrder
-// 41 = can receive end marker for openOrder
-//    ; can receive end marker for account download
-//    ; can receive end marker for executions download
-// 42 = can receive deltaNeutralValidation
-// 43 = can receive longName(companyName)
-//    ; can receive listingExchange
-//    ; can receive RTVolume tick
-// 44 = can receive end market for ticker snapshot
-// 45 = can receive notHeld field in openOrder
-// 46 = can receive contractMonth, industry, category, subcategory fields in contractDetails
-//    ; can receive timeZoneId, tradingHours, liquidHours fields in contractDetails
-// 47 = can receive gamma, vega, theta, undPrice fields in TICK_OPTION_COMPUTATION
-// 48 = can receive exemptCode in openOrder
-// 49 = can receive hedgeType and hedgeParam in openOrder
-// 50 = can receive optOutSmartRouting field in openOrder
-// 51 = can receive smartComboRoutingParams in openOrder
-// 52 = can receive deltaNeutralConId, deltaNeutralSettlingFirm, deltaNeutralClearingAccount and deltaNeutralClearingIntent in openOrder
-// 53 = can receive orderRef in execution
-// 54 = can receive scale order fields (PriceAdjustValue, PriceAdjustInterval, ProfitOffset, AutoReset,
-//      InitPosition, InitFillQty and RandomPercent) in openOrder
-// 55 = can receive orderComboLegs (price) in openOrder
-// 56 = can receive trailingPercent in openOrder
-// 57 = can receive commissionReport message
-// 58 = can receive CUSIP/ISIN/etc. in contractDescription/bondContractDescription
-// 59 = can receive evRule, evMultiplier in contractDescription/bondContractDescription/executionDetails
-//      can receive multiplier in executionDetails
-// 60 = can receive deltaNeutralOpenClose, deltaNeutralShortSale, deltaNeutralShortSaleSlot and deltaNeutralDesignatedLocation in openOrder
-// 61 = can receive multiplier in openOrder
-//      can receive tradingClass in openOrder, updatePortfolio, execDetails and position
-// 62 = can receive avgCost in position message
-// 63 = can receive verifyMessageAPI, verifyCompleted, displayGroupList and displayGroupUpdated messages
-// 64 = can receive solicited attrib in openOrder message
-// 65 = can receive verifyAndAuthMessageAPI and verifyAndAuthCompleted messages
-// 66 = can receive randomize size and randomize price order fields
 
 class IBClient extends EventEmitter {
   constructor(options = { socket: null, clientId: null }) {
     super()
     this._clientId = options.clientId
     this._socket = this._initSocket(new Socket(options.socket))
-    this._queue = new Queue({ eventHandler: this, socket: this._socket })
+
     this._messageEncoder = new MessageEncoder({
       eventHandler: this
     })
+
     this._messageDecoder = new MessageDecoder({
       eventHandler: this
     })
+
+    this._outboundQueue = new OutboundQueue({
+      eventHandler: this,
+      encoder: this._messageEncoder,
+      socket: this._socket
+    })
+    this._inboundQueue = new InboundQueue({
+      eventHandler: this,
+      decoder: this._messageDecoder,
+      socket: this._socket
+    })
+
+    this.on('server', ({ serverVersion }) => {
+      this._messageEncoder.setServerVersion(serverVersion)
+      this._messageDecoder.setServerVersion(serverVersion)
+      this.startAPI()
+    })
+  }
+
+  _initSocket(socket) {
+    socket
+      .onError(err => this.emit('error', err))
+      .onConnected(() => this.emit('connected'))
+      .onClose(err => this.emit('disconnected', err))
+    return socket
+  }
+
+  _sendMessage() {
+    let message = Array.from(arguments)
+    this._outboundQueue.push(message).on('failure', err => this.emit('error', err))
   }
 
   connect() {
-    this._socket.connect(() => this.sendClientVersion().sendClientId())
+    this._socket.connect(() => this.sendV100APIHeader())
     return this
   }
   disconnect() {
@@ -116,39 +62,42 @@ class IBClient extends EventEmitter {
     return this
   }
 
-  sendClientVersion() {
-    let message = this._messageEncoder.encodeMessage({}, 'sendClientVersion', CLIENT_VERSION)
-    this._sendMessage(message)
-    return this
+  sendV100APIHeader() {
+    let message = this._messageEncoder.sendV100APIHeader()
+    this._socket.write(message, () => {})
   }
 
-  sendClientId() {
-    assert(Number.isInteger(this._clientId), '"clientId" must be an integer - ' + this._clientId)
-    let message = this._messageEncoder.encodeMessage({}, 'sendClientId', this._clientId)
-    this._sendMessage(message)
+  startAPI() {
+    this._sendMessage(
+      { id: BROKER_ERRORS.NO_VALID_ID, error: BROKER_ERRORS.FAIL_SEND_STARTAPI },
+      'startAPI',
+      this._clientId,
+      '' // optionalCapabilities
+    )
+
     return this
   }
 
   cancelScannerSubscription(tickerId) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       { id: tickerId, error: BROKER_ERRORS.FAIL_SEND_CANSCANNER },
       'cancelScannerSubscription',
       tickerId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqScannerParameters() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_REQSCANNERPARAMETERS
       },
       'reqScannerParameters'
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -159,7 +108,7 @@ class IBClient extends EventEmitter {
     scannerSubscriptionFilterOptions
   ) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.UPDATE_TWS
@@ -170,7 +119,7 @@ class IBClient extends EventEmitter {
       scannerSubscriptionOptions,
       scannerSubscriptionFilterOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -185,7 +134,7 @@ class IBClient extends EventEmitter {
       typeof regulatorySnapshot === 'boolean',
       '"regulatorySnapshot" must be a boolean - ' + regulatorySnapshot
     )
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_REQMKT
@@ -198,13 +147,13 @@ class IBClient extends EventEmitter {
       regulatorySnapshot,
       mktDataOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelHistoricalData(tickerId) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_CANHISTDATA
@@ -212,13 +161,13 @@ class IBClient extends EventEmitter {
       'cancelHistoricalData',
       tickerId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelRealTimeBars(tickerId) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_CANRTBARS
@@ -226,7 +175,7 @@ class IBClient extends EventEmitter {
       'cancelRealTimeBars',
       tickerId
     )
-    this._sendMessage(message)
+
     return this
   }
   reqHistoricalData(
@@ -252,7 +201,7 @@ class IBClient extends EventEmitter {
     assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
     assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
     assert(typeof keepUpToDate === 'boolean', '"keepUpToDate" must be an boolean - ' + keepUpToDate)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_REQHISTDATA
@@ -269,7 +218,7 @@ class IBClient extends EventEmitter {
       keepUpToDate,
       chartOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -278,7 +227,7 @@ class IBClient extends EventEmitter {
     assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
     assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
     assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQHEADTIMESTAMP
@@ -290,13 +239,13 @@ class IBClient extends EventEmitter {
       useRTH,
       formatDate
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelHeadTimestamp(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANHEADTIMESTAMP
@@ -304,7 +253,7 @@ class IBClient extends EventEmitter {
       'cancelHeadTimestamp',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -313,7 +262,7 @@ class IBClient extends EventEmitter {
     assert(Number.isInteger(barSize), '"barSize" must be an integer - ' + barSize)
     assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
     assert(typeof useRTH === 'boolean', '"useRTH" must be a boolean - ' + useRTH)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_REQRTBARS
@@ -326,13 +275,13 @@ class IBClient extends EventEmitter {
       useRTH,
       realTimeBarsOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqContractDetails(reqId, contract) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQCONTRACT
@@ -341,7 +290,7 @@ class IBClient extends EventEmitter {
       reqId,
       contract
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -350,7 +299,7 @@ class IBClient extends EventEmitter {
     assert(Number.isInteger(numRows), '"numRows" must be an integer - ' + numRows)
     assert(typeof isSmartDepth === 'boolean', '"isSmartDepth" must be a boolean - ' + isSmartDepth)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_REQMKTDEPTH
@@ -362,13 +311,13 @@ class IBClient extends EventEmitter {
       isSmartDepth,
       mktDepthOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelMktData(tickerId) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_CANMKT
@@ -376,7 +325,7 @@ class IBClient extends EventEmitter {
       'cancelMktData',
       tickerId
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -384,7 +333,7 @@ class IBClient extends EventEmitter {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     assert(typeof isSmartDepth === 'boolean', '"isSmartDepth" must be a boolean - ' + isSmartDepth)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_CANMKTDEPTH
@@ -392,7 +341,7 @@ class IBClient extends EventEmitter {
       'cancelMktDepth',
       tickerId
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -408,7 +357,7 @@ class IBClient extends EventEmitter {
     )
     assert(typeof account === 'string', '"account" must be a string - ' + account)
     assert(Number.isInteger(override), '"override" must be an integer - ' + override)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_REQMKT
@@ -421,13 +370,13 @@ class IBClient extends EventEmitter {
       account,
       override
     )
-    this._sendMessage(message)
+
     return this
   }
 
   placeOrder(id, contract, order) {
     assert(Number.isInteger(id), '"id" must be an integer - ' + id)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: id,
         error: BROKER_ERRORS.FAIL_SEND_ORDER
@@ -437,14 +386,14 @@ class IBClient extends EventEmitter {
       contract,
       order
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqAccountUpdates(subscribe, acctCode) {
     assert(typeof subscribe === 'boolean', '"subscribe" must be a boolean - ' + subscribe)
     assert(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_ACCT
@@ -453,13 +402,13 @@ class IBClient extends EventEmitter {
       subscribe,
       acctCode
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqExecutions(reqId, filter) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_EXEC
@@ -468,13 +417,13 @@ class IBClient extends EventEmitter {
       reqId,
       filter
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelOrder(id) {
     assert(Number.isInteger(id), '"id" must be an integer - ' + id)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: id,
         error: BROKER_ERRORS.FAIL_SEND_CORDER
@@ -482,25 +431,25 @@ class IBClient extends EventEmitter {
       'cancelOrder',
       id
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqOpenOrders() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_OORDER
       },
       'reqOpenOrders'
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqIds(numIds) {
     assert(Number.isInteger(numIds), '"numIds" must be an integer - ' + numIds)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_CORDER
@@ -508,13 +457,13 @@ class IBClient extends EventEmitter {
       'reqIds',
       numIds
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqNewsBulletins(allMsgs) {
     assert(typeof allMsgs === 'boolean', '"allMsgs" must be a boolean - ' + allMsgs)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_CORDER
@@ -522,25 +471,25 @@ class IBClient extends EventEmitter {
       'reqNewsBulletins',
       allMsgs
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelNewsBulletins() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_CORDER
       },
       'cancelNewsBulletins'
     )
-    this._sendMessage(message)
+
     return this
   }
 
   setServerLogLevel(logLevel) {
     assert(Number.isInteger(logLevel), '"logLevel" must be an integer - ' + logLevel)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_SERVER_LOG_LEVEL
@@ -548,13 +497,13 @@ class IBClient extends EventEmitter {
       'setServerLogLevel',
       logLevel
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqAutoOpenOrders(bAutoBind) {
     assert(typeof bAutoBind === 'boolean', '"bAutoBind" must be a boolean - ' + bAutoBind)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_OORDER
@@ -562,37 +511,37 @@ class IBClient extends EventEmitter {
       'reqAutoOpenOrders',
       bAutoBind
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqAllOpenOrders() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_OORDER
       },
       'reqAllOpenOrders'
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqManagedAccts() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_OORDER
       },
       'reqManagedAccts'
     )
-    this._sendMessage(message)
+
     return this
   }
 
   requestFA(faDataType) {
     assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_FA_REQUEST
@@ -600,14 +549,14 @@ class IBClient extends EventEmitter {
       'requestFA',
       faDataType
     )
-    this._sendMessage(message)
+
     return this
   }
 
   replaceFA(faDataType, xml) {
     assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
     assert(typeof xml === 'string', '"xml" must be a string - ' + xml)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_FA_REPLACE
@@ -616,26 +565,26 @@ class IBClient extends EventEmitter {
       faDataType,
       xml
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqCurrentTime() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQCURRTIME
       },
       'reqCurrentTime'
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqFundamentalData(reqId, contract, reportType, fundamentalDataOptions = null) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(typeof reportType === 'string', '"reportType" must be a string - ' + reportType)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQFUNDDATA
@@ -646,13 +595,13 @@ class IBClient extends EventEmitter {
       reportType,
       fundamentalDataOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelFundamentalData(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: FAIL_SEND_CANFUNDDATA
@@ -660,7 +609,7 @@ class IBClient extends EventEmitter {
       'cancelFundamentalData',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -672,7 +621,7 @@ class IBClient extends EventEmitter {
     impliedVolatilityOptions = null
   ) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQCALCIMPLIEDVOLAT
@@ -684,13 +633,13 @@ class IBClient extends EventEmitter {
       underPrice,
       impliedVolatilityOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelCalculateImpliedVolatility(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANCALCIMPLIEDVOLAT
@@ -698,13 +647,13 @@ class IBClient extends EventEmitter {
       'cancelCalculateImpliedVolatility',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   calculateOptionPrice(reqId, contract, volatility, underPrice, optionPriceOptions = null) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQCALCOPTIONPRICE
@@ -716,13 +665,13 @@ class IBClient extends EventEmitter {
       underPrice,
       optionPriceOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelCalculateOptionPrice(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANCALCOPTIONPRICE
@@ -730,19 +679,19 @@ class IBClient extends EventEmitter {
       'cancelCalculateOptionPrice',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqGlobalCancel() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQGLOBALCANCEL
       },
       'reqGlobalCancel'
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -751,7 +700,7 @@ class IBClient extends EventEmitter {
       Number.isInteger(marketDataType),
       '"marketDataType" must be an integer - ' + marketDataType
     )
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQMARKETDATATYPE
@@ -759,19 +708,19 @@ class IBClient extends EventEmitter {
       'reqMarketDataType',
       marketDataType
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqPositions() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQPOSITIONS
       },
       'reqPositions'
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -793,7 +742,7 @@ class IBClient extends EventEmitter {
       Number.isInteger(underlyingConId),
       '"underlyingConId" must be an integer - ' + underlyingConId
     )
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQSECDEFOPTPARAMS
@@ -805,13 +754,13 @@ class IBClient extends EventEmitter {
       underlyingSecType,
       underlyingConId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqSoftDollarTiers(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQSOFTDOLLARTIERS
@@ -819,19 +768,19 @@ class IBClient extends EventEmitter {
       'reqSoftDollarTiers',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelPositions() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_CANPOSITIONS
       },
       'cancelPositions'
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -842,7 +791,7 @@ class IBClient extends EventEmitter {
       typeof modelCode === 'string' || typeof modelCode === 'object',
       '"modelCode" must be a string or null - ' + modelCode
     )
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQPOSITIONSMULTI
@@ -852,13 +801,13 @@ class IBClient extends EventEmitter {
       account,
       modelCode
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelPositionsMulti(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANPOSITIONSMULTI
@@ -866,13 +815,13 @@ class IBClient extends EventEmitter {
       'cancelPositionsMulti',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelAccountUpdatesMulti(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANACCOUNTUPDATESMULTI
@@ -880,7 +829,7 @@ class IBClient extends EventEmitter {
       'cancelAccountUpdatesMulti',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -892,7 +841,7 @@ class IBClient extends EventEmitter {
       '"modelCode" must be a string or null - ' + modelCode
     )
     assert(typeof ledgerAndNLV === 'boolean', '"ledgerAndNLV" must be a boolean - ' + ledgerAndNLV)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQACCOUNTUPDATESMULTI
@@ -903,7 +852,7 @@ class IBClient extends EventEmitter {
       modelCode,
       ledgerAndNLV
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -917,7 +866,7 @@ class IBClient extends EventEmitter {
     if (Array.isArray(tags)) {
       tags = tags.join(',')
     }
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQACCOUNTDATA
@@ -927,13 +876,13 @@ class IBClient extends EventEmitter {
       group,
       tags
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelAccountSummary(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANACCOUNTDATA
@@ -941,7 +890,7 @@ class IBClient extends EventEmitter {
       'cancelAccountSummary',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -949,7 +898,7 @@ class IBClient extends EventEmitter {
     assert(typeof apiName === 'string', '"apiName" must be a string - ' + apiName)
     assert(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: EClientErrors.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_VERIFYREQUEST
@@ -959,14 +908,13 @@ class IBClient extends EventEmitter {
       apiVersion
     )
 
-    this._sendMessage(message)
     return this
   }
 
   verifyMessage(apiData) {
     assert(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: EClientErrors.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_VERIFYMESSAGE
@@ -975,7 +923,6 @@ class IBClient extends EventEmitter {
       apiData
     )
 
-    this._sendMessage(message)
     return this
   }
 
@@ -984,7 +931,7 @@ class IBClient extends EventEmitter {
     assert(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
     assert(typeof opaqueIsvKey === 'string', '"opaqueIsvKey" must be a string - ' + opaqueIsvKey)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: EClientErrors.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_VERIFYANDAUTHREQUEST
@@ -995,7 +942,6 @@ class IBClient extends EventEmitter {
       opaqueIsvKey
     )
 
-    this._sendMessage(message)
     return this
   }
 
@@ -1003,7 +949,7 @@ class IBClient extends EventEmitter {
     assert(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
     assert(typeof xyzResponse === 'string', '"xyzResponse" must be a string - ' + xyzResponse)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: EClientErrors.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_VERIFYANDAUTHMESSAGE
@@ -1013,13 +959,12 @@ class IBClient extends EventEmitter {
       xyzResponse
     )
 
-    this._sendMessage(message)
     return this
   }
 
   queryDisplayGroups(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_QUERYDISPLAYGROUPS
@@ -1027,14 +972,14 @@ class IBClient extends EventEmitter {
       'queryDisplayGroups',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   subscribeToGroupEvents(reqId, groupId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(typeof groupId === 'string', '"groupId" must be an integer - ' + groupId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_SUBSCRIBETOGROUPEVENTS
@@ -1043,14 +988,14 @@ class IBClient extends EventEmitter {
       reqId,
       groupId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   updateDisplayGroup(reqId, contractInfo) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(typeof contractInfo === 'string', '"contractInfo" must be an string - ' + contractInfo)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_UPDATEDISPLAYGROUP
@@ -1059,13 +1004,13 @@ class IBClient extends EventEmitter {
       reqId,
       contractInfo
     )
-    this._sendMessage(message)
+
     return this
   }
 
   unsubscribeFromGroupEvents(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_UNSUBSCRIBEFROMGROUPEVENTS
@@ -1073,14 +1018,14 @@ class IBClient extends EventEmitter {
       'unsubscribeToGroupEvents',
       reqId
     )
-    this._sendMessage(message)
+
     return this
   }
 
   reqMatchingSymbols(reqId, pattern) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(typeof pattern === 'string', '"pattern" must be a string - ' + pattern)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQMATCHINGSYMBOLS
@@ -1089,11 +1034,10 @@ class IBClient extends EventEmitter {
       reqId,
       pattern
     )
-    this._sendMessage(message)
   }
 
   reqFamilyCodes() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQFAMILYCODES
@@ -1102,24 +1046,22 @@ class IBClient extends EventEmitter {
       reqId,
       pattern
     )
-    this._sendMessage(message)
   }
 
   reqMktDepthExchanges() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQMKTDEPTHEXCHANGES
       },
       'reqMktDepthExchanges'
     )
-    this._sendMessage(message)
   }
 
   reqSmartComponents(reqId, bboExchange) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(typeof bboExchange === 'string', '"bboExchange" must be a string - ' + bboExchange)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQSMARTCOMPONENTS
@@ -1128,24 +1070,22 @@ class IBClient extends EventEmitter {
       reqId,
       bboExchange
     )
-    this._sendMessage(message)
   }
 
   reqNewsProviders() {
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQNEWSPROVIDERS
       },
       'reqNewsProviders'
     )
-    this._sendMessage(message)
   }
 
   reqNewsArticle(reqId, providerCode, articleId = null, newsArticleOptions) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     assert(typeof providerCode === 'string', '"providerCode" must be a string - ' + providerCode)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQNEWSARTICLE
@@ -1156,7 +1096,6 @@ class IBClient extends EventEmitter {
       articleId,
       newsArticleOptions
     )
-    this._sendMessage(message)
   }
 
   reqHistoricalNews(
@@ -1176,7 +1115,7 @@ class IBClient extends EventEmitter {
     assert(typeof endDateTime === 'string', '"endDateTime" must be a string - ' + providerCode)
     assert(Number.isInteger(totalResults), '"totalResults" must be an integer - ' + totalResults)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQHISTORICALNEWS
@@ -1190,7 +1129,6 @@ class IBClient extends EventEmitter {
       totalResults,
       historicalNewsOptions
     )
-    this._sendMessage(message)
   }
 
   reqHistogramData(reqId, contract, useRTH, timePeriod) {
@@ -1198,7 +1136,7 @@ class IBClient extends EventEmitter {
     assert(typeof useRTH === 'boolean', '"useRTH" must be an boolean - ' + useRTH)
     assert(typeof timePeriod === 'string', '"timePeriod" must be a string - ' + timePeriod)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQHISTDATA
@@ -1209,13 +1147,12 @@ class IBClient extends EventEmitter {
       useRTH,
       timePeriod
     )
-    this._sendMessage(message)
   }
 
   cancelHistogramData(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANHISTDATA
@@ -1223,13 +1160,12 @@ class IBClient extends EventEmitter {
       'cancelHistogramData',
       reqId
     )
-    this._sendMessage(message)
   }
 
   reqMarketRule(marketRuleId) {
     assert(Number.isInteger(marketRuleId), '"marketRuleId" must be an integer - ' + marketRuleId)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQMARKETRULE
@@ -1237,7 +1173,6 @@ class IBClient extends EventEmitter {
       'reqMarketRule',
       marketRuleId
     )
-    this._sendMessage(message)
   }
 
   reqPnL(reqId, account, modelCode) {
@@ -1245,7 +1180,7 @@ class IBClient extends EventEmitter {
     assert(typeof account === 'string', '"account" must be a string - ' + account)
     assert(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQPNL
@@ -1255,13 +1190,12 @@ class IBClient extends EventEmitter {
       account,
       modelCode
     )
-    this._sendMessage(message)
   }
 
   cancelPnL(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANPNL
@@ -1269,7 +1203,6 @@ class IBClient extends EventEmitter {
       'reqPnL',
       reqId
     )
-    this._sendMessage(message)
   }
 
   reqPnLSingle(reqId, account, modelCode, conId) {
@@ -1278,7 +1211,7 @@ class IBClient extends EventEmitter {
     assert(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
     assert(Number.isInteger(conId), '"conId" must be an integer - ' + conId)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_REQPNL_SINGLE
@@ -1289,13 +1222,12 @@ class IBClient extends EventEmitter {
       modelCode,
       conId
     )
-    this._sendMessage(message)
   }
 
   cancelPnLSingle(reqId) {
     assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
 
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: reqId,
         error: BROKER_ERRORS.FAIL_SEND_CANPNL_SINGLE
@@ -1303,7 +1235,6 @@ class IBClient extends EventEmitter {
       'cancelPnLSingle',
       reqId
     )
-    this._sendMessage(message)
   }
 
   reqHistoricalTicks(
@@ -1330,7 +1261,7 @@ class IBClient extends EventEmitter {
     assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
     assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
     assert(typeof ignoreSize === 'boolean', '"ignoreSize" must be an boolean - ' + ignoreSize)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_HISTORICAL_TICK
@@ -1346,7 +1277,7 @@ class IBClient extends EventEmitter {
       ignoreSize,
       miscOptions
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -1355,7 +1286,7 @@ class IBClient extends EventEmitter {
     assert(typeof tickType === 'string', '"tickType" must be a string - ' + tickType)
     assert(Number.isInteger(numberOfTicks), '"numberOfTicks" must be a number - ' + numberOfTicks)
     assert(typeof ignoreSize === 'boolean', '"ignoreSize" must be an boolean - ' + ignoreSize)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_REQTICKBYTICK
@@ -1367,13 +1298,13 @@ class IBClient extends EventEmitter {
       numberOfTicks,
       ignoreSize
     )
-    this._sendMessage(message)
+
     return this
   }
 
   cancelTickByTickData(tickerId) {
     assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    let message = this._messageEncoder.encodeMessage(
+    this._sendMessage(
       {
         id: tickerId,
         error: BROKER_ERRORS.FAIL_SEND_CANTICKBYTICK
@@ -1381,7 +1312,7 @@ class IBClient extends EventEmitter {
       'cancelTickByTickData',
       tickerId
     )
-    this._sendMessage(message)
+
     return this
   }
 
@@ -1512,32 +1443,6 @@ class IBClient extends EventEmitter {
     ticker['theta'][prefix] = values.theta
     ticker['underlyingPrice'][prefix] = values.undPrice
     ticker['vega'][prefix] = values.vega
-  }
-
-  _initSocket(socket) {
-    socket
-      .onError(err => this.emit('error', err))
-      .onConnected(() => this.emit('connected'))
-      .onServerData(({ serverVersion }) => {
-        this._messageEncoder.setServerVersion(serverVersion)
-        this._messageDecoder.setServerVersion(serverVersion)
-      })
-      .onResponse(data => {
-        this._receiveResponse(data)
-        this.emit('received', data)
-      })
-      .onClose(err => this.emit('disconnected', err))
-
-    return socket
-  }
-
-  _sendMessage(message) {
-    this._queue.push(message)
-  }
-
-  _receiveResponse(response) {
-    this._messageDecoder.receiveMessage(response)
-    this._messageDecoder.decodeMessage()
   }
 }
 export default IBClient
