@@ -92,7 +92,7 @@ class IBClient extends EventEmitter {
   reqScannerParameters() {
     this._sendMessage(
       {
-        id: tickerId,
+        id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_REQSCANNERPARAMETERS
       },
       'reqScannerParameters'
@@ -438,7 +438,7 @@ class IBClient extends EventEmitter {
   reqOpenOrders() {
     this._sendMessage(
       {
-        id: tickerId,
+        id: BROKER_ERRORS.NO_VALID_ID,
         error: BROKER_ERRORS.FAIL_SEND_OORDER
       },
       'reqOpenOrders'
