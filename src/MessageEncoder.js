@@ -1,14 +1,14 @@
-import { isEmpty, isPlainObject } from 'lodash'
+import { isEmpty, isPlainObject, flattenDeep } from 'lodash'
 
 import { MIN_SERVER_VER, SERVER_VERSION, OUTGOING, SEC_TYPE, ORDER_TYPE } from './constants'
+import {  MIN_VERSION, MAX_VERSION , EOL } from './constants'
 
 import { BrokerError, BROKER_ERRORS} from './errors' 
-
 
 class MessageEncoder {
     constructor(options = { eventHandler: null} ){
         this._eventHandler= options.eventHandler
-        this._serverVersion = SERVER_VERSION
+        this._serverVersion = SERVER_VERSION    
     }
 
     _emitError(id, error, message){
@@ -18,42 +18,84 @@ class MessageEncoder {
             this._eventHandler.emit('error', new BrokerError({ id:id , code :error.code, message:error.message+' '+message}))
         }
     }
+   
+    _encodeLengthHeader(value) {
+        let arr = []
+        let mask = 0xff
 
-    _nullifyMax(number) {
-        if (number === Number.MAX_VALUE) {
-            return null
+        arr.push(mask & (value >> 24))
+        arr.push(mask & (value >> 16))
+        arr.push(mask & (value >> 8))
+        arr.push(mask & value)
+        return arr
+    }
+
+    _encodeString(value) {
+        if (value != null) {
+            return Array.from(value.concat(EOL), c => c.charCodeAt())
         } else {
-            return number
+            return 0
         }
     }
 
-    encodeMessage(){
-        var a = Array.from(arguments)
-        let error = a[0]
-        let func = a[1]
-        let args = a.slice(2)
+    _encodeBool(value){
+        return this._encodeString((value ? 1 : 0).toString())
+    }
+    _encodeMax(value) {
+        return (value === 0xffffffff || value === Number.MAX_VALUE
+            ? this._encode('')
+            : this._encode(value))
+    }
+
+    _encode(value) {
+        if (typeof value === "boolean") return this._encodeBool(value)
+        return this._encodeString(value === undefined || value === null ? null : value.toString())
+    }
+
+    encodeMessage(data){
+        let error = data[0]
+        let func = data[1]
+        let args = data.slice(2)
         if (typeof this[func] !== 'function')
             throw new Error('Unknown broker API request  - ' + func)
-        return { error, func, args, message: this[func](...args)}
+        let tokens = flattenDeep(this[func](...args))
+        return { error, func, args, message: this._prependV100LengthHeader(tokens)}
     }
 
     setServerVersion(version){
         this._serverVersion= version
     }
-    sendClientVersion(clientId){
-        return [clientId]
+
+    _prependV100LengthHeader(message) {
+        let header = this._getV100LengthHeader(message.length)
+        return header.concat(message)
     }
 
-    sendClientId(clientVersion) {
-        return [clientVersion]
+    _getV100LengthHeader(length) {
+        return this._encodeLengthHeader(length)
     }
 
+    sendV100APIHeader() {
+        let prefix = this._encode('API')
+        let version = this._encode('v' + (MIN_VERSION < MAX_VERSION ? MIN_VERSION + '..' + MAX_VERSION : MIN_VERSION))
+        version.splice(-1)
+        return [prefix, this._getV100LengthHeader(version.length), version]
+    }
+
+    startAPI(clientId, optionalCapabilities){
+        let version = 2
+        let buffer = [this._encode(OUTGOING.START_API), this._encode(version), this._encode(clientId)]
+        if (this._serverVersion >= MIN_SERVER_VER.OPTIONAL_CAPABILITIES) {
+            buffer.push(this._encode(optionalCapabilities))
+        }
+        return buffer
+    }
     cancelScannerSubscription(tickerId) {
         if (this._serverVersion < 24) {
             return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,'It does not support API scanner subscription.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_SCANNER_SUBSCRIPTION, version, tickerId]
+        let buffer = [this._encode(OUTGOING.CANCEL_SCANNER_SUBSCRIPTION), this._encode(version), this._encode(tickerId)]
 
         return buffer
     }
@@ -63,7 +105,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support API scanner subscription.')
         }
         let version = 1
-        return [OUTGOING.REQ_SCANNER_PARAMETERS, version]
+        return [this._encode(OUTGOING.REQ_SCANNER_PARAMETERS), this._encode(version)]
     }
     
     reqScannerSubscription(tickerId, subscription, scannerSubscriptionOptions, scannerSubscriptionFilterOptions) {
@@ -71,49 +113,49 @@ class MessageEncoder {
             return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,'It does not support API scanner subscription.')
         }
         if (this._serverVersion < MIN_SERVER_VER.SCANNER_GENERIC_OPTS && scannerSubscriptionFilterOptions != null) {
-            return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,"It does not support API scanner subscription generic filter options");
+            return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,"It does not support API scanner subscription generic filter options")
 
         }
         let version = 4
-        let buffer = [OUTGOING.REQ_SCANNER_SUBSCRIPTION]
+        let buffer = [this._encode(OUTGOING.REQ_SCANNER_SUBSCRIPTION)]
         if (this._serverVersion < MIN_SERVER_VER.SCANNER_GENERIC_OPTS) {
-            buffer.push(version)
+            buffer.push(this._encode(version))
         }
 
-        buffer.push(tickerId)
-        buffer.push(this._nullifyMax(subscription.numberOfRows))
-        buffer.push(subscription.instrument)
-        buffer.push(subscription.locationCode)
-        buffer.push(subscription.scanCode)
-        buffer.push(this._nullifyMax(subscription.abovePrice))
-        buffer.push(this._nullifyMax(subscription.belowPrice))
-        buffer.push(this._nullifyMax(subscription.aboveVolume))
-        buffer.push(this._nullifyMax(subscription.marketCapAbove))
-        buffer.push(this._nullifyMax(subscription.marketCapBelow))
-        buffer.push(subscription.moodyRatingAbove)
-        buffer.push(subscription.moodyRatingBelow)
-        buffer.push(subscription.spRatingAbove)
-        buffer.push(subscription.spRatingBelow)
-        buffer.push(subscription.maturityDateAbove)
-        buffer.push(subscription.maturityDateBelow)
-        buffer.push(this._nullifyMax(subscription.couponRateAbove))
-        buffer.push(this._nullifyMax(subscription.couponRateBelow))
-        buffer.push(subscription.excludeConvertible)
+        buffer.push(this._encode(tickerId))
+        buffer.push(this._encodeMax(subscription.numberOfRows))
+        buffer.push(this._encode(subscription.instrument))
+        buffer.push(this._encode(subscription.locationCode))
+        buffer.push(this._encode(subscription.scanCode))
+        buffer.push(this._encodeMax(subscription.abovePrice))
+        buffer.push(this._encodeMax(subscription.belowPrice))
+        buffer.push(this._encodeMax(subscription.aboveVolume))
+        buffer.push(this._encodeMax(subscription.marketCapAbove))
+        buffer.push(this._encodeMax(subscription.marketCapBelow))
+        buffer.push(this._encode(subscription.moodyRatingAbove))
+        buffer.push(this._encode(subscription.moodyRatingBelow))
+        buffer.push(this._encode(subscription.spRatingAbove))
+        buffer.push(this._encode(subscription.spRatingBelow))
+        buffer.push(this._encode(subscription.maturityDateAbove))
+        buffer.push(this._encode(subscription.maturityDateBelow))
+        buffer.push(this._encodeMax(subscription.couponRateAbove))
+        buffer.push(this._encodeMax(subscription.couponRateBelow))
+        buffer.push(this._encode(subscription.excludeConvertible))
         if (this._serverVersion >= 25) {
-            buffer.push(this._nullifyMax(subscription.averageOptionVolumeAbove))
-            buffer.push(subscription.scannerSettingPairs)
+            buffer.push(this._encodeMax(subscription.averageOptionVolumeAbove))
+            buffer.push(this._encode(subscription.scannerSettingPairs))
         }
         if (this._serverVersion >= 27) {
-            buffer.push(subscription.stockTypeFilter)
+            buffer.push(this._encode(subscription.stockTypeFilter))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.SCANNER_GENERIC_OPTS) {
-            buffer.push(scannerSubscriptionFilterOptions);
+            buffer.push(this._encode(scannerSubscriptionFilterOptions))
         }
 
         // send scannerSubscriptionOptions parameter
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(scannerSubscriptionOptions)
+            buffer.push(this._encode(scannerSubscriptionOptions))
         }
 
         return buffer
@@ -138,32 +180,32 @@ class MessageEncoder {
             }
         }
         let version = 11
-        let buffer = [OUTGOING.REQ_MKT_DATA, version, tickerId]
+        let buffer = [this._encode(OUTGOING.REQ_MKT_DATA), this._encode(version), this._encode(tickerId)]
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.REQ_MKT_DATA_CONID) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
 
         if (this._serverVersion >= 15) {
-            buffer.push(contract.multiplier)
+            buffer.push(this._encode(contract.multiplier))
         }
 
-        buffer.push(contract.exchange)
+        buffer.push(this._encode(contract.exchange))
         
         if (this._serverVersion >= 14) {
-            buffer.push(contract.primaryExch)
+            buffer.push(this._encode(contract.primaryExch))
         }
-        buffer.push(contract.currency)
+        buffer.push(this._encode(contract.currency))
         if (this._serverVersion >= 2) {
-            buffer.push(contract.localSymbol)
+            buffer.push(this._encode(contract.localSymbol))
         }
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
         if (
             this._serverVersion >= 8 &&
@@ -171,25 +213,25 @@ class MessageEncoder {
             SEC_TYPE.BAG.toUpperCase() === contract.secType.toUpperCase()
         ) {
             if (!Array.isArray(contract.comboLegs)) {
-                buffer.push(0)
+                buffer.push(this._encode(0))
             } else {
-                buffer.push(contract.comboLegs.length)
+                buffer.push(this._encode(contract.comboLegs.length))
                 contract.comboLegs.forEach(comboLeg =>{
-                    buffer.push(comboLeg.conId)
-                    buffer.push(comboLeg.ratio)
-                    buffer.push(comboLeg.action)
-                    buffer.push(comboLeg.exchange)
+                    buffer.push(this._encode(comboLeg.conId))
+                    buffer.push(this._encode(comboLeg.ratio))
+                    buffer.push(this._encode(comboLeg.action))
+                    buffer.push(this._encode(comboLeg.exchange))
                 })
             }
         }
         if (this._serverVersion >= MIN_SERVER_VER.DELTA_NEUTRAL) {
             if (isPlainObject(contract.deltaNeutralContract)) {
-                buffer.push(true)
-                buffer.push(contract.deltaNeutralContract.conId)
-                buffer.push(contract.deltaNeutralContract.delta)
-                buffer.push(contract.deltaNeutralContract.price)
+                buffer.push(this._encode(true))
+                buffer.push(this._encode(contract.deltaNeutralContract.conId))
+                buffer.push(this._encode(contract.deltaNeutralContract.delta))
+                buffer.push(this._encode(contract.deltaNeutralContract.price))
             } else {
-                buffer.push(false)
+                buffer.push(this._encode(false))
             }
         }
         if (this._serverVersion >= 31) {
@@ -200,16 +242,16 @@ class MessageEncoder {
              *
              *       Therefore we are relying on TWS doing validation.
              */
-            buffer.push(genericTickList)
+            buffer.push(this._encode(genericTickList))
         }
         if (this._serverVersion >= MIN_SERVER_VER.SNAPSHOT_MKT_DATA) {
-            buffer.push(snapshot)
+            buffer.push(this._encode(snapshot))
         }
         if (this._serverVersion >= MIN_SERVER_VER.REQ_SMART_COMPONENTS) {
-            buffer.push(regulatorySnapshot)
+            buffer.push(this._encode(regulatorySnapshot))
         }
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(mktDataOptions)
+            buffer.push(this._encode(mktDataOptions))
         }
 
         return buffer
@@ -220,7 +262,7 @@ class MessageEncoder {
             return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,'It does not support historical data query cancellation.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_HISTORICAL_DATA, version, tickerId]
+        let buffer = [this._encode(OUTGOING.CANCEL_HISTORICAL_DATA), this._encode(version), this._encode(tickerId)]
 
         return buffer
     }
@@ -230,7 +272,7 @@ class MessageEncoder {
             return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,'It does not support realtime bar data query cancellation.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_REAL_TIME_BARS, version, tickerId]
+        let buffer = [this._encode(OUTGOING.CANCEL_REAL_TIME_BARS), this._encode(version), this._encode(tickerId)]
 
         return buffer
     }
@@ -258,67 +300,67 @@ class MessageEncoder {
                 )
             }
         }
-        let buffer = [OUTGOING.REQ_HISTORICAL_DATA]
+        let buffer = [this._encode(OUTGOING.REQ_HISTORICAL_DATA)]
 
         if (this._serverVersion >= MIN_SERVER_VER.SYNT_REALTIME_BARS) {
-            buffer.push(version)
+            buffer.push(this._encode(version))
         }
     
-        buffer.push(tickerId)
+        buffer.push(this._encode(tickerId))
 
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
-        buffer.push(contract.multiplier)
-        buffer.push(contract.exchange)
-        buffer.push(contract.primaryExch)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
+        buffer.push(this._encode(contract.multiplier))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.primaryExch))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
         if (this._serverVersion >= 31) {
-            buffer.push(contract.includeExpired ? 1 : 0)
+            buffer.push(this._encode(contract.includeExpired ? 1 : 0))
         }
         if (this._serverVersion >= 20) {
-            buffer.push(endDateTime)
-            buffer.push(barSizeSetting)
+            buffer.push(this._encode(endDateTime))
+            buffer.push(this._encode(barSizeSetting))
         }
-        buffer.push(durationStr)
-        buffer.push(useRTH)
-        buffer.push(whatToShow)
+        buffer.push(this._encode(durationStr))
+        buffer.push(this._encode(useRTH))
+        buffer.push(this._encode(whatToShow))
 
         if (this._serverVersion > 16) {
-            buffer.push(formatDate)
+            buffer.push(this._encode(formatDate))
         }
         if (
             typeof contract.secType === 'string' &&
             SEC_TYPE.BAG.toUpperCase() === contract.secType.toUpperCase()
         ) {
             if (!Array.isArray(contract.comboLegs)) {
-                buffer.push(0)
+                buffer.push(this._encode(0))
             } else {
-                buffer.push(contract.comboLegs.length)
+                buffer.push(this._encode(contract.comboLegs.length))
                 contract.comboLegs.forEach(comboLeg=>{
-                    buffer.push(comboLeg.conId)
-                    buffer.push(comboLeg.ratio)
-                    buffer.push(comboLeg.action)
-                    buffer.push(comboLeg.exchange)
+                    buffer.push(this._encode(comboLeg.conId))
+                    buffer.push(this._encode(comboLeg.ratio))
+                    buffer.push(this._encode(comboLeg.action))
+                    buffer.push(this._encode(comboLeg.exchange))
                 })
             }
         }
         if (this._serverVersion >= MIN_SERVER_VER.SYNT_REALTIME_BARS) {
-            buffer.push(keepUpToDate)
+            buffer.push(this._encode(keepUpToDate))
         }
          // send chartOptions parameter
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(chartOptions)
+            buffer.push(this._encode(chartOptions))
         }
 
         return buffer
@@ -326,27 +368,27 @@ class MessageEncoder {
 
     reqHeadTimestamp(reqId, contract, whatToShow, useRTH, formatDate) {
         if (this._serverVersion < MIN_SERVER_VER.REQ_HEAD_TIMESTAMP) {
-            return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support reqHeadTimeStamp');
+            return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support reqHeadTimeStamp')
         }
-        return [
-            OUTGOING.REQ_HEAD_TIMESTAMP,
-            reqId,
-            contract.conId,
-            contract.symbol,
-            contract.secType,
-            contract.expiry,
-            contract.strike,
-            contract.right,
-            contract.multiplier,
-            contract.exchange,
-            contract.primaryExchange,
-            contract.currency,
-            contract.localSymbol,
-            contract.tradingClass,
-            contract.includeExpired,
-            useRTH,
-            whatToShow,
-            formatDate
+        return [  
+            this._encode(OUTGOING.REQ_HEAD_TIMESTAMP),
+            this._encode(reqId),
+            this._encode(contract.conId),
+            this._encode(contract.symbol),
+            this._encode(contract.secType),
+            this._encode( contract.expiry),
+            this._encode( contract.strike),
+            this._encode( contract.right),
+            this._encode( contract.multiplier),
+            this._encode( contract.exchange),
+            this._encode(  contract.primaryExchange),
+            this._encode( contract.currency),
+            this._encode( contract.localSymbol),
+            this._encode( contract.tradingClass),
+            this._encode( contract.includeExpired),
+            this._encode( useRTH),
+            this._encode(whatToShow),
+            this._encode( formatDate)
         ]
 
     }
@@ -356,8 +398,8 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support head time stamp requests canceling.')
         }
         return [
-            OUTGOING.CANCEL_HEAD_TIMESTAMP,
-            reqId 
+            this._encode(OUTGOING.CANCEL_HEAD_TIMESTAMP),
+                this._encode(reqId) 
         ]
 
     }
@@ -375,31 +417,31 @@ class MessageEncoder {
         }
         let version = 3
         // send req mkt data msg
-        let buffer = [OUTGOING.REQ_REAL_TIME_BARS, version, tickerId]
+        let buffer = [this._encode(OUTGOING.REQ_REAL_TIME_BARS), this._encode(version), this._encode(tickerId)]
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
-        buffer.push(contract.multiplier)
-        buffer.push(contract.exchange)
-        buffer.push(contract.primaryExch)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
+        buffer.push(this._encode(contract.multiplier))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.primaryExch))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
-        buffer.push(barSize) // this parameter is not currently used
-        buffer.push(whatToShow)
-        buffer.push(useRTH)
+        buffer.push(this._encode(barSize)) // this parameter is not currently used
+        buffer.push(this._encode(whatToShow))
+        buffer.push(this._encode(useRTH))
 
         // send realTimeBarsOptions parameter
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(realTimeBarsOptions)
+            buffer.push(this._encode(realTimeBarsOptions))
         }
 
         return buffer
@@ -428,49 +470,49 @@ class MessageEncoder {
         }
         let version =8
         // send req mkt data msg
-        let buffer = [OUTGOING.REQ_CONTRACT_DATA, version]
+        let buffer = [this._encode(OUTGOING.REQ_CONTRACT_DATA), this._encode(version)]
         if (this._serverVersion >= MIN_SERVER_VER.CONTRACT_DATA_CHAIN) {
-            buffer.push(reqId)
+            buffer.push(this._encode(reqId))
         }
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.CONTRACT_CONID) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
         if (this._serverVersion >= 15) {
-            buffer.push(contract.multiplier)
+            buffer.push(this._encode(contract.multiplier))
         }
-        buffer.push(contract.exchange)
+        buffer.push(this._encode(contract.exchange))
 
 
         if (this._serverVersion >= MIN_SERVER_VER.PRIMARYEXCH) {
-            buffer.push(contract.exchange);
-            buffer.push(contract.primaryExch);
+            buffer.push(this._encode(contract.exchange))
+            buffer.push(this._encode(contract.primaryExch))
         } else if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
             if (!isEmpty(contract.primaryExch)
                 && ("BEST" === contract.exchange  || "SMART"=== contract.exchange)) {
-                buffer.push(contract.exchange + ":" + contract.primaryExch);
+                buffer.push(this._encode(contract.exchange + ":" + contract.primaryExch))
             } else {
-                buffer.push(contract.exchange);
+                buffer.push(this._encode(contract.exchange))
             }
         }
 
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
 
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
         if (this._serverVersion >= 31) {
-            buffer.push(contract.includeExpired)
+            buffer.push(this._encode(contract.includeExpired))
         }
         if (this._serverVersion >= MIN_SERVER_VER.SEC_ID_TYPE) {
-            buffer.push(contract.secIdType)
-            buffer.push(contract.secId)
+            buffer.push(this._encode(contract.secIdType))
+            buffer.push(this._encode(contract.secId))
         }
 
         return buffer
@@ -495,35 +537,35 @@ class MessageEncoder {
         let version = 5
 
         // send req mkt data msg
-        let buffer = [OUTGOING.REQ_MKT_DEPTH, version, tickerId]
+        let buffer = [this._encode(OUTGOING.REQ_MKT_DEPTH), this._encode(version), this._encode(tickerId)]
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
         if (this._serverVersion >= 15) {
-            buffer.push(contract.multiplier)
+            buffer.push(this._encode(contract.multiplier))
         }
-        buffer.push(contract.exchange)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
         if (this._serverVersion >= 19) {
-            buffer.push(numRows)
+            buffer.push(this._encode(numRows))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.SMART_DEPTH) {
-            buffer.push(isSmartDepth)
+            buffer.push(this._encode(isSmartDepth))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(mktDepthOptions)
+            buffer.push(this._encode(mktDepthOptions))
         }
         
         return buffer
@@ -531,7 +573,7 @@ class MessageEncoder {
 
     cancelMktData(tickerId) {
         let version = 1
-        let buffer = [OUTGOING.CANCEL_MKT_DATA, version, tickerId]
+        let buffer = [this._encode(OUTGOING.CANCEL_MKT_DATA), this._encode(version), this._encode(tickerId)]
 
         return buffer
     }
@@ -546,10 +588,10 @@ class MessageEncoder {
         }
 
         let version = 1
-        let buffer = [OUTGOING.CANCEL_MKT_DEPTH, version, tickerId]
+        let buffer = [this._encode(OUTGOING.CANCEL_MKT_DEPTH), this._encode(version), this._encode(tickerId)]
 
         if (this._serverVersion >= MIN_SERVER_VER.SMART_DEPTH) {
-            buffer.push(isSmartDepth)
+            buffer.push(this._encode(isSmartDepth))
         }
 
         return buffer
@@ -567,27 +609,27 @@ class MessageEncoder {
                 )
             }
         }
-        let buffer = [OUTGOING.EXERCISE_OPTIONS, version, tickerId]
+        let buffer = [this._encode(OUTGOING.EXERCISE_OPTIONS), this._encode(version), this._encode(tickerId)]
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
-        buffer.push(contract.multiplier)
-        buffer.push(contract.exchange)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
+        buffer.push(this._encode(contract.multiplier))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
-        buffer.push(exerciseAction)
-        buffer.push(exerciseQuantity)
-        buffer.push(account)
-        buffer.push(override)
+        buffer.push(this._encode(exerciseAction))
+        buffer.push(this._encode(exerciseQuantity))
+        buffer.push(this._encode(account))
+        buffer.push(this._encode(override))
 
         return buffer
     }
@@ -829,85 +871,85 @@ class MessageEncoder {
 
         let version = this._serverVersion < MIN_SERVER_VER.NOT_HELD ? 27 : 45
         // send place order msg
-        let buffer = [OUTGOING.PLACE_ORDER]
+        let buffer = [this._encode(OUTGOING.PLACE_ORDER)]
 
         if (this._serverVersion < MIN_SERVER_VER.ORDER_CONTAINER) {
-            buffer.push(version)
+            buffer.push(this._encode(version))
         }
 
-        buffer.push(id)
+        buffer.push(this._encode(id))
 
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.PLACE_ORDER_CONID) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
         if (this._serverVersion >= 15) {
-            buffer.push(contract.multiplier)
+            buffer.push(this._encode(contract.multiplier))
         }
-        buffer.push(contract.exchange)
+        buffer.push(this._encode(contract.exchange))
         if (this._serverVersion >= 14) {
-            buffer.push(contract.primaryExch)
+            buffer.push(this._encode(contract.primaryExch))
         }
-        buffer.push(contract.currency)
+        buffer.push(this._encode(contract.currency))
         if (this._serverVersion >= 2) {
-            buffer.push(contract.localSymbol)
+            buffer.push(this._encode(contract.localSymbol))
         }
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
         if (this._serverVersion >= MIN_SERVER_VER.SEC_ID_TYPE) {
-            buffer.push(contract.secIdType)
-            buffer.push(contract.secId)
+            buffer.push(this._encode(contract.secIdType))
+            buffer.push(this._encode(contract.secId))
         }
         // send main order fields
-        buffer.push(order.action)
+        buffer.push(this._encode(order.action))
 
         if (this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS)
-            buffer.push(order.totalQuantity)
+            buffer.push(this._encode(order.totalQuantity))
         else
-            buffer.push(parseInt(order.totalQuantity,10))
+            buffer.push(this._encode(parseInt(order.totalQuantity,10)))
 
-        buffer.push(order.orderType)
+        buffer.push(this._encode(order.orderType))
         if (this._serverVersion < MIN_SERVER_VER.ORDER_COMBO_LEGS_PRICE) {
-            buffer.push(order.lmtPrice === Number.MAX_VALUE ? 0 : order.lmtPrice)
+            buffer.push(this._encode(order.lmtPrice === Number.MAX_VALUE ? 0 : order.lmtPrice))
         } else {
-            buffer.push(this._nullifyMax(order.lmtPrice))
+            buffer.push(this._encodeMax(order.lmtPrice))
         }
         if (this._serverVersion < MIN_SERVER_VER.TRAILING_PERCENT) {
-            buffer.push(order.auxPrice === Number.MAX_VALUE ? 0 : order.auxPrice)
+            buffer.push(this._encode(order.auxPrice === Number.MAX_VALUE ? 0 : order.auxPrice))
         } else {
-            buffer.push(this._nullifyMax(order.auxPrice))
+            buffer.push(this._encodeMax(order.auxPrice))
         }
         // send extended order fields
-        buffer.push(order.tif)
-        buffer.push(order.ocaGroup)
-        buffer.push(order.account)
-        buffer.push(order.openClose)
-        buffer.push(order.origin)
-        buffer.push(order.orderRef)
-        buffer.push(order.transmit)
+        buffer.push(this._encode(order.tif))
+        buffer.push(this._encode(order.ocaGroup))
+        buffer.push(this._encode(order.account))
+        buffer.push(this._encode(order.openClose))
+        buffer.push(this._encode(order.origin))
+        buffer.push(this._encode(order.orderRef))
+        buffer.push(this._encode(order.transmit))
         if (this._serverVersion >= 4) {
-            buffer.push(order.parentId)
+            buffer.push(this._encode(order.parentId))
         }
         if (this._serverVersion >= 5) {
-            buffer.push(order.blockOrder)
-            buffer.push(order.sweepToFill)
-            buffer.push(order.displaySize)
-            buffer.push(order.triggerMethod)
+            buffer.push(this._encode(order.blockOrder))
+            buffer.push(this._encode(order.sweepToFill))
+            buffer.push(this._encode(order.displaySize))
+            buffer.push(this._encode(order.triggerMethod))
             if (this._serverVersion < 38) {
                 // will never happen
-                buffer.push(/* order.ignoreRth */ false)
+                buffer.push(this._encode(/* order.ignoreRth */ false))
             } else {
-                buffer.push(order.outsideRth)
+                buffer.push(this._encode(order.outsideRth))
             }
         }
         if (this._serverVersion >= 7) {
-            buffer.push(order.hidden)
+            buffer.push(this._encode(order.hidden))
         }
         // Send combo legs for BAG requests
         if (
@@ -916,22 +958,22 @@ class MessageEncoder {
             SEC_TYPE.BAG.toUpperCase() === contract.secType.toUpperCase()
         ) {
             if (!Array.isArray(contract.comboLegs)) {
-                buffer.push(0)
+                buffer.push(this._encode(0))
             } else {
-                buffer.push(contract.comboLegs.length)
+                buffer.push(this._encode(contract.comboLegs.length))
                 contract.comboLegs.forEach(
                     comboLeg=> {
-                        buffer.push(comboLeg.conId)
-                        buffer.push(comboLeg.ratio)
-                        buffer.push(comboLeg.action)
-                        buffer.push(comboLeg.exchange)
-                        buffer.push(comboLeg.openClose)
+                        buffer.push(this._encode(comboLeg.conId))
+                        buffer.push(this._encode(comboLeg.ratio))
+                        buffer.push(this._encode(comboLeg.action))
+                        buffer.push(this._encode(comboLeg.exchange))
+                        buffer.push(this._encode(comboLeg.openClose))
                         if (this._serverVersion >= MIN_SERVER_VER.SSHORT_COMBO_LEGS) {
-                            buffer.push(comboLeg.shortSaleSlot)
-                            buffer.push(comboLeg.designatedLocation)
+                            buffer.push(this._encode(comboLeg.shortSaleSlot))
+                            buffer.push(this._encode(comboLeg.designatedLocation))
                         }
                         if (this._serverVersion >= MIN_SERVER_VER.SSHORTX_OLD) {
-                            buffer.push(comboLeg.exemptCode)
+                            buffer.push(this._encode(comboLeg.exemptCode))
                         }
                     }
                 )
@@ -944,11 +986,11 @@ class MessageEncoder {
             SEC_TYPE.BAG.toUpperCase() === contract.secType.toUpperCase()
         ) {
             if (!Array.isArray(order.orderComboLegs)) {
-                buffer.push(0)
+                buffer.push(this._encode(0))
             } else {
-                buffer.push(order.orderComboLegs.length)
+                buffer.push(this._encode(order.orderComboLegs.length))
                 order.orderComboLegs.forEach(orderComboLeg=>
-                    buffer.push(this._nullifyMax(orderComboLeg.price))
+                    buffer.push(this._encodeMax(orderComboLeg.price))
                 )
             }
         }
@@ -961,66 +1003,66 @@ class MessageEncoder {
             smartComboRoutingParamsCount = !Array.isArray(order.smartComboRoutingParams)
                 ? 0
                 : order.smartComboRoutingParams.length
-            buffer.push(smartComboRoutingParamsCount)
+            buffer.push(this._encode(smartComboRoutingParamsCount))
             if (smartComboRoutingParamsCount > 0) {
                 order.smartComboRoutingParams.forEach(tagValue=> {
-                    buffer.push(tagValue.tag)
-                    buffer.push(tagValue.value)
+                    buffer.push(this._encode(tagValue.tag))
+                    buffer.push(this._encode(tagValue.value))
                 })
             }
         }
         if (this._serverVersion >= 9) {
             // send deprecated sharesAllocation field
-            buffer.push('')
+            buffer.push(this._encode(''))
         }
         if (this._serverVersion >= 10) {
-            buffer.push(order.discretionaryAmt)
+            buffer.push(this._encode(order.discretionaryAmt))
         }
         if (this._serverVersion >= 11) {
-            buffer.push(order.goodAfterTime)
+            buffer.push(this._encode(order.goodAfterTime))
         }
         if (this._serverVersion >= 12) {
-            buffer.push(order.goodTillDate)
+            buffer.push(this._encode(order.goodTillDate))
         }
         if (this._serverVersion >= 13) {
-            buffer.push(order.faGroup)
-            buffer.push(order.faMethod)
-            buffer.push(order.faPercentage)
-            buffer.push(order.faProfile)
+            buffer.push(this._encode(order.faGroup))
+            buffer.push(this._encode(order.faMethod))
+            buffer.push(this._encode(order.faPercentage))
+            buffer.push(this._encode(order.faProfile))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.MODELS_SUPPORT) {
-            buffer.push(order.modelCode)
+            buffer.push(this._encode(order.modelCode))
         }
 
         if (this._serverVersion >= 18) {
             // institutional short sale slot fields.
-            buffer.push(order.shortSaleSlot) // 0 only for retail, 1 or 2 only for institution.
-            buffer.push(order.designatedLocation) // only populate when order.shortSaleSlot = 2.
+            buffer.push(this._encode(order.shortSaleSlot)) // 0 only for retail, 1 or 2 only for institution.
+            buffer.push(this._encode(order.designatedLocation)) // only populate when order.shortSaleSlot = 2.
         }
         if (this._serverVersion >= MIN_SERVER_VER.SSHORTX_OLD) {
-            buffer.push(order.exemptCode)
+            buffer.push(this._encode(order.exemptCode))
         }
         let lower
         let upper
         if (this._serverVersion >= 19) {
-            buffer.push(order.ocaType)
+            buffer.push(this._encode(order.ocaType))
             if (this._serverVersion < 38) {
                 // will never happen
-                buffer.push(/* order.rthOnly */ false)
+                buffer.push(this._encode(/* order.rthOnly */ false))
             }
-            buffer.push(order.rule80A)
-            buffer.push(order.settlingFirm)
-            buffer.push(order.allOrNone)
-            buffer.push(this._nullifyMax(order.minQty))
-            buffer.push(this._nullifyMax(order.percentOffset))
-            buffer.push(order.eTradeOnly)
-            buffer.push(order.firmQuoteOnly)
-            buffer.push(this._nullifyMax(order.nbboPriceCap))
-            buffer.push(this._nullifyMax(order.auctionStrategy))
-            buffer.push(this._nullifyMax(order.startingPrice))
-            buffer.push(this._nullifyMax(order.stockRefPrice))
-            buffer.push(this._nullifyMax(order.delta))
+            buffer.push(this._encode(order.rule80A))
+            buffer.push(this._encode(order.settlingFirm))
+            buffer.push(this._encode(order.allOrNone))
+            buffer.push(this._encodeMax(order.minQty))
+            buffer.push(this._encodeMax(order.percentOffset))
+            buffer.push(this._encode(order.eTradeOnly))
+            buffer.push(this._encode(order.firmQuoteOnly))
+            buffer.push(this._encodeMax(order.nbboPriceCap))
+            buffer.push(this._encodeMax(order.auctionStrategy))
+            buffer.push(this._encodeMax(order.startingPrice))
+            buffer.push(this._encodeMax(order.stockRefPrice))
+            buffer.push(this._encodeMax(order.delta))
             // Volatility orders had specific watermark price attribs in server version 26
             lower =
                 this._serverVersion === 26 && order.orderType === 'VOL'
@@ -1030,209 +1072,209 @@ class MessageEncoder {
                 this._serverVersion === 26 && order.orderType === 'VOL'
                     ? Number.MAX_VALUE
                     : order.stockRangeUpper
-            buffer.push(this._nullifyMax(lower))
-            buffer.push(this._nullifyMax(upper))
+            buffer.push(this._encodeMax(lower))
+            buffer.push(this._encodeMax(upper))
         }
         if (this._serverVersion >= 22) {
-            buffer.push(order.overridePercentageConstraints)
+            buffer.push(this._encode(order.overridePercentageConstraints))
         }
         if (this._serverVersion >= 26) {
             // Volatility orders
-            buffer.push(this._nullifyMax(order.volatility))
-            buffer.push(this._nullifyMax(order.volatilityType))
+            buffer.push(this._encodeMax(order.volatility))
+            buffer.push(this._encodeMax(order.volatilityType))
             if (this._serverVersion < 28) {
-                buffer.push(order.deltaNeutralOrderType.toUpperCase() === 'MKT')
+                buffer.push(this._encode(order.deltaNeutralOrderType.toUpperCase()) === 'MKT')
             } else {
-                buffer.push(order.deltaNeutralOrderType)
-                buffer.push(this._nullifyMax(order.deltaNeutralAuxPrice))
+                buffer.push(this._encode(order.deltaNeutralOrderType))
+                buffer.push(this._encodeMax(order.deltaNeutralAuxPrice))
                 if (
                     this._serverVersion >= MIN_SERVER_VER.DELTA_NEUTRAL_CONID &&
                     !isEmpty(order.deltaNeutralOrderType)
                 ) {
-                    buffer.push(order.deltaNeutralConId)
-                    buffer.push(order.deltaNeutralSettlingFirm)
-                    buffer.push(order.deltaNeutralClearingAccount)
-                    buffer.push(order.deltaNeutralClearingIntent)
+                    buffer.push(this._encode(order.deltaNeutralConId))
+                    buffer.push(this._encode(order.deltaNeutralSettlingFirm))
+                    buffer.push(this._encode(order.deltaNeutralClearingAccount))
+                    buffer.push(this._encode(order.deltaNeutralClearingIntent))
                 }
                 if (
                     this._serverVersion >= MIN_SERVER_VER.DELTA_NEUTRAL_OPEN_CLOSE &&
                     !isEmpty(order.deltaNeutralOrderType)
                 ) {
-                    buffer.push(order.deltaNeutralOpenClose)
-                    buffer.push(order.deltaNeutralShortSale)
-                    buffer.push(order.deltaNeutralShortSaleSlot)
-                    buffer.push(order.deltaNeutralDesignatedLocation)
+                    buffer.push(this._encode(order.deltaNeutralOpenClose))
+                    buffer.push(this._encode(order.deltaNeutralShortSale))
+                    buffer.push(this._encode(order.deltaNeutralShortSaleSlot))
+                    buffer.push(this._encode(order.deltaNeutralDesignatedLocation))
                 }
             }
-            buffer.push(order.continuousUpdate)
+            buffer.push(this._encode(order.continuousUpdate))
             if (this._serverVersion === 26) {
                 // Volatility orders had specific watermark price attribs in server version 26
                 lower = order.orderType === 'VOL' ? order.stockRangeLower : Number.MAX_VALUE
                 upper = order.orderType === 'VOL' ? order.stockRangeUpper : Number.MAX_VALUE
-                buffer.push(this._nullifyMax(lower))
-                buffer.push(this._nullifyMax(upper))
+                buffer.push(this._encodeMax(lower))
+                buffer.push(this._encodeMax(upper))
             }
-            buffer.push(this._nullifyMax(order.referencePriceType))
+            buffer.push(this._encodeMax(order.referencePriceType))
         }
         if (this._serverVersion >= 30) {
             // TRAIL_STOP_LIMIT stop price
-            buffer.push(this._nullifyMax(order.trailStopPrice))
+            buffer.push(this._encodeMax(order.trailStopPrice))
         }
         if (this._serverVersion >= MIN_SERVER_VER.TRAILING_PERCENT) {
-            buffer.push(this._nullifyMax(order.trailingPercent))
+            buffer.push(this._encodeMax(order.trailingPercent))
         }
         if (this._serverVersion >= MIN_SERVER_VER.SCALE_ORDERS) {
             if (this._serverVersion >= MIN_SERVER_VER.SCALE_ORDERS2) {
-                buffer.push(this._nullifyMax(order.scaleInitLevelSize))
-                buffer.push(this._nullifyMax(order.scaleSubsLevelSize))
+                buffer.push(this._encodeMax(order.scaleInitLevelSize))
+                buffer.push(this._encodeMax(order.scaleSubsLevelSize))
             } else {
-                buffer.push('')
-                buffer.push(this._nullifyMax(order.scaleInitLevelSize))
+                buffer.push(this._encode(''))
+                buffer.push(this._encodeMax(order.scaleInitLevelSize))
             }
-            buffer.push(this._nullifyMax(order.scalePriceIncrement))
+            buffer.push(this._encodeMax(order.scalePriceIncrement))
         }
         if (
             this._serverVersion >= MIN_SERVER_VER.SCALE_ORDERS3 &&
             order.scalePriceIncrement > 0.0 &&
             order.scalePriceIncrement !== Number.MAX_VALUE
         ) {
-            buffer.push(this._nullifyMax(order.scalePriceAdjustValue))
-            buffer.push(this._nullifyMax(order.scalePriceAdjustInterval))
-            buffer.push(this._nullifyMax(order.scaleProfitOffset))
-            buffer.push(order.scaleAutoReset)
-            buffer.push(this._nullifyMax(order.scaleInitPosition))
-            buffer.push(this._nullifyMax(order.scaleInitFillQty))
-            buffer.push(order.scaleRandomPercent)
+            buffer.push(this._encodeMax(order.scalePriceAdjustValue))
+            buffer.push(this._encodeMax(order.scalePriceAdjustInterval))
+            buffer.push(this._encodeMax(order.scaleProfitOffset))
+            buffer.push(this._encode(order.scaleAutoReset))
+            buffer.push(this._encodeMax(order.scaleInitPosition))
+            buffer.push(this._encodeMax(order.scaleInitFillQty))
+            buffer.push(this._encode(order.scaleRandomPercent))
         }
         if (this._serverVersion >= MIN_SERVER_VER.SCALE_TABLE) {
-            buffer.push(order.scaleTable)
-            buffer.push(order.activeStartTime)
-            buffer.push(order.activeStopTime)
+            buffer.push(this._encode(order.scaleTable))
+            buffer.push(this._encode(order.activeStartTime))
+            buffer.push(this._encode(order.activeStopTime))
         }
         if (this._serverVersion >= MIN_SERVER_VER.HEDGE_ORDERS) {
-            buffer.push(order.hedgeType)
+            buffer.push(this._encode(order.hedgeType))
             if (!isEmpty(order.hedgeType)) {
-                buffer.push(order.hedgeParam)
+                buffer.push(this._encode(order.hedgeParam))
             }
         }
         if (this._serverVersion >= MIN_SERVER_VER.OPT_OUT_SMART_ROUTING) {
-            buffer.push(order.optOutSmartRouting)
+            buffer.push(this._encode(order.optOutSmartRouting))
         }
         if (this._serverVersion >= MIN_SERVER_VER.PTA_ORDERS) {
-            buffer.push(order.clearingAccount)
-            buffer.push(order.clearingIntent)
+            buffer.push(this._encode(order.clearingAccount))
+            buffer.push(this._encode(order.clearingIntent))
         }
         if (this._serverVersion >= MIN_SERVER_VER.NOT_HELD) {
-            buffer.push(order.notHeld)
+            buffer.push(this._encode(order.notHeld))
         }
         if (this._serverVersion >= MIN_SERVER_VER.DELTA_NEUTRAL) {
             if (isPlainObject(contract.deltaNeutralContract) && !isEmpty(contract.deltaNeutralContract)) {
-                buffer.push(true)
-                buffer.push(contract.deltaNeutralContract.conId)
-                buffer.push(contract.deltaNeutralContract.delta)
-                buffer.push(contract.deltaNeutralContract.price)
+                buffer.push(this._encode(true))
+                buffer.push(this._encode(contract.deltaNeutralContract.conId))
+                buffer.push(this._encode(contract.deltaNeutralContract.delta))
+                buffer.push(this._encode(contract.deltaNeutralContract.price))
             } else {
-                buffer.push(false)
+                buffer.push(this._encode(false))
             }
         }
         let algoParamsCount
         if (this._serverVersion >= MIN_SERVER_VER.ALGO_ORDERS) {
-            buffer.push(order.algoStrategy)
+            buffer.push(this._encode(order.algoStrategy))
             if (!isEmpty(order.algoStrategy)) {
                 algoParamsCount = !Array.isArray(order.algoParams) ? 0 : order.algoParams.length
-                buffer.push(algoParamsCount)
+                buffer.push(this._encode(algoParamsCount))
                 if (algoParamsCount > 0) {
                     order.algoParams.forEach(function (tagValue) {
-                        buffer.push(tagValue.tag)
-                        buffer.push(tagValue.value)
+                        buffer.push(this._encode(tagValue.tag))
+                        buffer.push(this._encode(tagValue.value))
                     })
                 }
             }
         }
         if (this._serverVersion >= MIN_SERVER_VER.ALGO_ID) {
-            buffer.push(order.algoid)
+            buffer.push(this._encode(order.algoid))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.WHAT_IF_ORDERS) {
-            buffer.push(order.whatIf)
+            buffer.push(this._encode(order.whatIf))
         }
         
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(order.orderMiscOptions)
+            buffer.push(this._encode(order.orderMiscOptions))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.ORDER_SOLICITED) {
-            buffer.push(order.solicited)
+            buffer.push(this._encode(order.solicited))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.RANDOMIZE_SIZE_AND_PRICE) {
-            buffer.push(order.randomizeSize)
-            buffer.push(order.randomizePrice)
+            buffer.push(this._encode(order.randomizeSize))
+            buffer.push(this._encode(order.randomizePrice))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.PEGGED_TO_BENCHMARK) {
-            if (order.orderType == ORDER_TYPE.PEG_BENCH) {
-                buffer.push(order.referenceContractId)
-                buffer.push(order.isPeggedChangeAmountDecrease)
-                buffer.push(order.peggedChangeAmount)
-                buffer.push(order.referenceChangeAmount)
-                buffer.push(order.randomizeSize)
+            if (order.orderType === ORDER_TYPE.PEG_BENCH) {
+                buffer.push(this._encode(order.referenceContractId))
+                buffer.push(this._encode(order.isPeggedChangeAmountDecrease))
+                buffer.push(this._encode(order.peggedChangeAmount))
+                buffer.push(this._encode(order.referenceChangeAmount))
+                buffer.push(this._encode(order.randomizeSize))
             }
 
-            buffer.push(isArray(order.conditions)?order.conditions.length:0)
+            buffer.push(this._encode(Array.isArray(order.conditions)?order.conditions.length:0))
 
-            if (isArray(order.conditions) && order.conditions.length > 0){
+            if (Array.isArray(order.conditions) && order.conditions.length > 0){
                 order.conditions.forEach(condition => {
-                    buffer.push(condition.type)
-                    buffer.push(condition)
+                    buffer.push(this._encode(condition.type))
+                    buffer.push(this._encode(condition))
                     
                 })
-                buffer.push(order.conditionsIgnoreRth)
-                buffer.push(order.conditionsCancelOrder)
+                buffer.push(this._encode(order.conditionsIgnoreRth))
+                buffer.push(this._encode(order.conditionsCancelOrder))
             }
 
-            buffer.push(order.adjustedOrderType)
-            buffer.push(order.triggerPrice)
-            buffer.push(order.lmtPriceOffset)
-            buffer.push(order.adjustedStopPrice)
-            buffer.push(order.adjustedStopLimitPrice)
-            buffer.push(order.adjustedTrailingAmount)
-            buffer.push(order.adjustableTrailingUnit)
+            buffer.push(this._encode(order.adjustedOrderType))
+            buffer.push(this._encode(order.triggerPrice))
+            buffer.push(this._encode(order.lmtPriceOffset))
+            buffer.push(this._encode(order.adjustedStopPrice))
+            buffer.push(this._encode(order.adjustedStopLimitPrice))
+            buffer.push(this._encode(order.adjustedTrailingAmount))
+            buffer.push(this._encode(order.adjustableTrailingUnit))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.EXT_OPERATOR) {
-            buffer.push(order.extOperator)
+            buffer.push(this._encode(order.extOperator))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.SOFT_DOLLAR_TIER) {
-            buffer.push(order.softDollarTier.name)
-            buffer.push(order.softDollarTier.vale)
+            buffer.push(this._encode(order.softDollarTier && order.softDollarTier.name || null))
+            buffer.push(this._encode(order.softDollarTier && order.softDollarTier.value || null))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.CASH_QTY) {
-            buffer.push(order.cashQty)
+            buffer.push(this._encode(order.cashQty))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.DECISION_MAKER) {
-            buffer.push(order.mifid2DecisionMaker)
-            buffer.push(order.mifid2DecisionAlgo)
+            buffer.push(this._encode(order.mifid2DecisionMaker))
+            buffer.push(this._encode(order.mifid2DecisionAlgo))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.MIFID_EXECUTION) {
-            buffer.push(order.mifid2ExecutionTrader)
-            buffer.push(order.mifid2ExecutionAlgo)
+            buffer.push(this._encode(order.mifid2ExecutionTrader))
+            buffer.push(this._encode(order.mifid2ExecutionAlgo))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.AUTO_PRICE_FOR_HEDGE) {
-            buffer.push(order.dontUseAutoPriceForHedge)
+            buffer.push(this._encode(order.dontUseAutoPriceForHedge))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.ORDER_CONTAINER) {
-            buffer.push(order.isOmsContainer)
+            buffer.push(this._encode(order.isOmsContainer))
         }
 
         if (this._serverVersion >= MIN_SERVER_VER.D_PEG_ORDERS) {
-            buffer.push(order.discretionaryUpToLimitPrice)
+            buffer.push(this._encode(order.discretionaryUpToLimitPrice))
         }
 
         return buffer
@@ -1242,9 +1284,9 @@ class MessageEncoder {
         let version = 2
 
         if (this._serverVersion >= 9) {
-            return [OUTGOING.REQ_ACCOUNT_DATA, version, subscribe, acctCode]
+            return [this._encode(OUTGOING.REQ_ACCOUNT_DATA), this._encode(version), this._encode(subscribe), this._encode(acctCode)]
         } else {
-            return [OUTGOING.REQ_ACCOUNT_DATA, version, subscribe]
+            return [this._encode(OUTGOING.REQ_ACCOUNT_DATA), this._encode(version), this._encode(subscribe)]
         }
     }
 
@@ -1252,21 +1294,21 @@ class MessageEncoder {
         // NOTE: Time format must be 'yyyymmdd-hh:mm:ss' E.g. '20030702-14:55'
         let version = 3
         // send req open orders msg
-        let buffer = [OUTGOING.REQ_EXECUTIONS, version]
+        let buffer = [this._encode(OUTGOING.REQ_EXECUTIONS), this._encode(version)]
 
         if (this._serverVersion >= MIN_SERVER_VER.EXECUTION_DATA_CHAIN) {
-            buffer.push(reqId)
+            buffer.push(this._encode(reqId))
         }
         // Send the execution rpt filter data 
         if (this._serverVersion >=9) {
-            buffer.push(filter.clientId)
-            buffer.push(filter.acctCode)
+            buffer.push(this._encode(filter.clientId))
+            buffer.push(this._encode(filter.acctCode))
             // Note that the valid format for m_time is "yyyymmdd-hh:mm:ss"
-            buffer.push(filter.time)
-            buffer.push(filter.symbol)
-            buffer.push(filter.secType)
-            buffer.push(filter.exchange)
-            buffer.push(filter.side)
+            buffer.push(this._encode(filter.time))
+            buffer.push(this._encode(filter.symbol))
+            buffer.push(this._encode(filter.secType))
+            buffer.push(this._encode(filter.exchange))
+            buffer.push(this._encode(filter.side))
         }
 
         return buffer
@@ -1274,51 +1316,51 @@ class MessageEncoder {
 
     cancelOrder(id) {
         let version = 1
-        let buffer = [OUTGOING.CANCEL_ORDER, version, id]
+        let buffer = [this._encode(OUTGOING.CANCEL_ORDER), this._encode(version), this._encode(id)]
 
         return buffer
     }
 
     reqOpenOrders() {
         let version = 1
-        return [OUTGOING.REQ_OPEN_ORDERS, version]
+        return [this._encode(OUTGOING.REQ_OPEN_ORDERS), this._encode(version)]
     }
 
     reqIds(numIds) {
         let version = 1
-        return [OUTGOING.REQ_IDS, version, numIds]
+        return [this._encode(OUTGOING.REQ_IDS), this._encode(version), this._encode(numIds)]
     }
 
     reqNewsBulletins(allMsgs) {
         let version = 1
-        return [OUTGOING.REQ_NEWS_BULLETINS, version, allMsgs]
+        return [this._encode(OUTGOING.REQ_NEWS_BULLETINS), this._encode(version), this._encode(allMsgs)]
     }
   
     cancelNewsBulletins() {
         let version = 1
-        let buffer = [OUTGOING.CANCEL_NEWS_BULLETINS, version]
+        let buffer = [this._encode(OUTGOING.CANCEL_NEWS_BULLETINS), this._encode(version)]
 
         return buffer
     }
       
     setServerLogLevel(logLevel) {
         let version = 1
-        return [OUTGOING.SET_SERVER_LOGLEVEL, version, logLevel]
+        return [this._encode(OUTGOING.SET_SERVER_LOGLEVEL), this._encode(version), this._encode(logLevel)]
     }
 
     reqAutoOpenOrders(bAutoBind) {
         let version = 1
-        return [OUTGOING.REQ_AUTO_OPEN_ORDERS, version, bAutoBind]
+        return [this._encode(OUTGOING.REQ_AUTO_OPEN_ORDERS), this._encode(version), this._encode(bAutoBind)]
     }
 
     reqAllOpenOrders() {
         let version = 1
-        return [OUTGOING.REQ_ALL_OPEN_ORDERS, version]
+        return [this._encode(OUTGOING.REQ_ALL_OPEN_ORDERS), this._encode(version)]
     }
 
     reqManagedAccts() {
         let version = 1
-        return [OUTGOING.REQ_MANAGED_ACCTS, version]
+        return [this._encode(OUTGOING.REQ_MANAGED_ACCTS), this._encode(version)]
     }
 
     requestFA(faDataType) {
@@ -1326,7 +1368,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'This feature is only available for versions of TWS >= 13.')
         }
         let version = 1
-        return [OUTGOING.REQ_FA, version, faDataType]
+        return [this._encode(OUTGOING.REQ_FA), this._encode(version), this._encode(faDataType)]
     }
 
     replaceFA(faDataType, xml) {
@@ -1334,7 +1376,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'This feature is only available for versions of TWS >= 13.')
         }
         let version = 1
-        return [OUTGOING.REPLACE_FA, version, faDataType, xml]
+        return [this._encode(OUTGOING.REPLACE_FA), this._encode(version), this._encode(faDataType), this._encode(xml)]
     }
 
     reqCurrentTime() {
@@ -1342,7 +1384,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support current time requests.')
         }
         let version = 1
-        return [OUTGOING.REQ_CURRENT_TIME, version]
+        return [this._encode(OUTGOING.REQ_CURRENT_TIME), this._encode(version)]
         
     }
 
@@ -1359,21 +1401,21 @@ class MessageEncoder {
         }
         let version = 2
         // send req fund data msg
-        let buffer = [OUTGOING.REQ_FUNDAMENTAL_DATA, version, reqId]
+        let buffer = [this._encode(OUTGOING.REQ_FUNDAMENTAL_DATA), this._encode(version), this._encode(reqId)]
         // send contract fields
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.conId)
+            buffer.push(this._encode(contract.conId))
         }
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.exchange)
-        buffer.push(contract.primaryExch)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
-        buffer.push(reportType)
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.primaryExch))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
+        buffer.push(this._encode(reportType))
 
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(fundamentalDataOptions)
+            buffer.push(this._encode(fundamentalDataOptions))
         }
 
         return buffer
@@ -1384,7 +1426,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support fundamental data requests.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_FUNDAMENTAL_DATA, version, reqId]
+        let buffer = [this._encode(OUTGOING.CANCEL_FUNDAMENTAL_DATA), this._encode(version), this._encode(reqId)]
 
         return buffer
     }
@@ -1403,29 +1445,29 @@ class MessageEncoder {
             }
         }
         let version = 2
-        let buffer = [OUTGOING.REQ_CALC_IMPLIED_VOLAT, version, reqId]
+        let buffer = [this._encode(OUTGOING.REQ_CALC_IMPLIED_VOLAT), this._encode(version), this._encode(reqId)]
         // send contract fields
-        buffer.push(contract.conId)
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
-        buffer.push(contract.multiplier)
-        buffer.push(contract.exchange)
-        buffer.push(contract.primaryExch)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
+        buffer.push(this._encode(contract.conId))
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
+        buffer.push(this._encode(contract.multiplier))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.primaryExch))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
 
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
         
-        buffer.push(optionPrice)
-        buffer.push(underPrice)
+        buffer.push(this._encode(optionPrice))
+        buffer.push(this._encode(underPrice))
 
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(impliedVolatilityOptions)
+            buffer.push(this._encode(impliedVolatilityOptions))
         }
 
         return buffer
@@ -1438,7 +1480,7 @@ class MessageEncoder {
             )
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_CALC_IMPLIED_VOLAT, version, reqId]
+        let buffer = [this._encode(OUTGOING.CANCEL_CALC_IMPLIED_VOLAT), this._encode(version), this._encode(reqId)]
 
         return buffer
     }
@@ -1455,29 +1497,29 @@ class MessageEncoder {
             }
         }
         let version = 2
-        let buffer = [OUTGOING.REQ_CALC_OPTION_PRICE, version, reqId]
+        let buffer = [this._encode(OUTGOING.REQ_CALC_OPTION_PRICE), this._encode(version), this._encode(reqId)]
         // send contract fields
-        buffer.push(contract.conId)
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
-        buffer.push(contract.multiplier)
-        buffer.push(contract.exchange)
-        buffer.push(contract.primaryExch)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
+        buffer.push(this._encode(contract.conId))
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
+        buffer.push(this._encode(contract.multiplier))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.primaryExch))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
 
         if (this._serverVersion >= MIN_SERVER_VER.TRADING_CLASS) {
-            buffer.push(contract.tradingClass)
+            buffer.push(this._encode(contract.tradingClass))
         }
 
-        buffer.push(volatility)
-        buffer.push(underPrice)
+        buffer.push(this._encode(volatility))
+        buffer.push(this._encode(underPrice))
         
         if (this._serverVersion >= MIN_SERVER_VER.LINKING) {
-            buffer.push(optionPriceOptions)
+            buffer.push(this._encode(optionPriceOptions))
         }
 
         return buffer
@@ -1488,7 +1530,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support calculate option price cancellation.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_CALC_OPTION_PRICE, version, reqId]
+        let buffer = [this._encode(OUTGOING.CANCEL_CALC_OPTION_PRICE), this._encode(version), this._encode(reqId)]
 
         return buffer
     }
@@ -1498,7 +1540,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support globalCancel requests.')
         }
         let version = 1
-        return [OUTGOING.REQ_GLOBAL_CANCEL, version]
+        return [this._encode(OUTGOING.REQ_GLOBAL_CANCEL), this._encode(version)]
     }
 
     reqMarketDataType(marketDataType) {
@@ -1506,7 +1548,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support marketDataType requests.')
         }
         let version = 1
-        return [OUTGOING.REQ_MARKET_DATA_TYPE, version, marketDataType]
+        return [this._encode(OUTGOING.REQ_MARKET_DATA_TYPE), this._encode(version), this._encode(marketDataType)]
     }
     
     reqPositions() {
@@ -1514,7 +1556,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support position requests.')
         }
         let version = 1
-        return [OUTGOING.REQ_POSITIONS, version]
+        return [this._encode(OUTGOING.REQ_POSITIONS), this._encode(version)]
     }
 
     reqSecDefOptParams(reqId, underlyingSymbol, futFopExchange, underlyingSecType, underlyingConId) {
@@ -1522,12 +1564,12 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support reqSecDefOptParams.')
         }
         return [
-            OUTGOING.REQ_SEC_DEF_OPT_PARAMS,
-            reqId,
-            underlyingSymbol,
-            futFopExchange,
-            underlyingSecType,
-            underlyingConId
+            this._encode(OUTGOING.REQ_SEC_DEF_OPT_PARAMS),
+            this._encode(reqId),
+            this._encode(underlyingSymbol),
+            this._encode(futFopExchange),
+            this._encode(underlyingSecType),
+            this._encode(underlyingConId) 
         ]
     }
 
@@ -1536,8 +1578,8 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support soft dollar tier requests.')
         }
         return [ 
-            OUTGOING.SOFT_DOLLAR_TIER,
-            reqId
+            this._encode(OUTGOING.SOFT_DOLLAR_TIER),
+            this._encode(reqId)
         ]
     }
     
@@ -1546,7 +1588,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support position cancellation.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_POSITIONS, version]
+        let buffer = [this._encode(OUTGOING.CANCEL_POSITIONS), this._encode(version)]
 
         return buffer
     }
@@ -1556,7 +1598,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support positions multi request.')
         }
         let version = 1
-        return [OUTGOING.REQ_POSITIONS_MULTI, version, reqId, account, modelCode]
+        return [this._encode(OUTGOING.REQ_POSITIONS_MULTI), this._encode(version), this._encode(reqId), this._encode(account), this._encode(modelCode)]
     }
 
     cancelPositionsMulti(reqId) {
@@ -1564,7 +1606,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support positions multi cancellation.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_POSITIONS_MULTI, version, reqId]
+        let buffer = [this._encode(OUTGOING.CANCEL_POSITIONS_MULTI), this._encode(version), this._encode(reqId)]
 
         return buffer
     }
@@ -1575,7 +1617,7 @@ class MessageEncoder {
         }
         
         let version = 1
-        let buffer = [OUTGOING.CANCEL_ACCOUNT_UPDATES_MULTI, version, reqId]
+        let buffer = [this._encode(OUTGOING.CANCEL_ACCOUNT_UPDATES_MULTI), this._encode(version), this._encode(reqId)]
 
         return buffer
     }
@@ -1587,12 +1629,12 @@ class MessageEncoder {
         }
 
         let version = 1
-        return [OUTGOING.REQ_ACCOUNT_UPDATES_MULTI,
-            version,
-            reqId,
-            acctCode,
-            modelCode,
-            ledgerAndNLV]
+        return [this._encode(OUTGOING.REQ_ACCOUNT_UPDATES_MULTI),
+        this._encode(version),
+        this._encode(reqId),
+        this._encode(acctCode),
+        this._encode(modelCode),
+        this._encode(ledgerAndNLV)]
         
     }
 
@@ -1601,7 +1643,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support account summary requests.')
         }
         let version = 1
-        return  [OUTGOING.REQ_ACCOUNT_SUMMARY, version, reqId, group, tags]
+        return [this._encode(OUTGOING.REQ_ACCOUNT_SUMMARY), this._encode(version), this._encode(reqId), this._encode(group), this._encode(tags)]
     }
 
     cancelAccountSummary(reqId) {
@@ -1609,7 +1651,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support account summary cancellation.')
         }
         let version = 1
-        let buffer = [OUTGOING.CANCEL_ACCOUNT_SUMMARY, version, reqId]
+        let buffer = [this._encode(OUTGOING.CANCEL_ACCOUNT_SUMMARY), this._encode(version), this._encode(reqId)]
 
         return buffer
     }
@@ -1624,7 +1666,7 @@ class MessageEncoder {
         }*/
 
         let version = 1
-        let buffer = [OUTGOING.VERIFY_REQUEST, version, apiName, apiVersion]
+        let buffer = [this._encode(OUTGOING.VERIFY_REQUEST), this._encode(version), this._encode(apiName), this._encode(apiVersion)]
 
         return buffer
     }
@@ -1635,7 +1677,7 @@ class MessageEncoder {
         }
 
         let version = 1
-        let buffer = [OUTGOING.VERIFY_MESSAGE, version, apiData]
+        let buffer = [this._encode(OUTGOING.VERIFY_MESSAGE), this._encode(version), this._encode(apiData)]
 
         return buffer
     }
@@ -1650,7 +1692,7 @@ class MessageEncoder {
         }*/
 
         let version = 1
-        let buffer = [OUTGOING.VERIFY_AND_AUTH_REQUEST, version, apiName, apiVersion, opaqueIsvKey]
+        let buffer = [this._encode(OUTGOING.VERIFY_AND_AUTH_REQUEST), this._encode(version), this._encode(apiName), this._encode(apiVersion), this._encode(opaqueIsvKey)]
 
         return buffer
     }
@@ -1661,7 +1703,7 @@ class MessageEncoder {
         }
 
         let version = 1
-        let buffer = [OUTGOING.VERIFY_AND_AUTH_MESSAGE, version, apiData, xyzResponse]
+        let buffer = [this._encode(OUTGOING.VERIFY_AND_AUTH_MESSAGE), this._encode(version), this._encode(apiData), this._encode(xyzResponse)]
 
         return buffer
     }
@@ -1672,7 +1714,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support queryDisplayGroups request.')
         }
         let version = 1
-        return [OUTGOING.QUERY_DISPLAY_GROUPS, version, reqId]
+        return [this._encode(OUTGOING.QUERY_DISPLAY_GROUPS), this._encode(version), this._encode(reqId)]
     }
 
     subscribeToGroupEvents(reqId, groupId) {
@@ -1681,7 +1723,7 @@ class MessageEncoder {
         }
 
         let version = 1
-        return [OUTGOING.SUBSCRIBE_TO_GROUP_EVENTS, version, reqId, groupId]
+        return [this._encode(OUTGOING.SUBSCRIBE_TO_GROUP_EVENTS), this._encode(version), this._encode(reqId), this._encode(groupId)]
     }
 
     updateDisplayGroup(reqId, contractInfo) {
@@ -1691,7 +1733,7 @@ class MessageEncoder {
         }
 
         let version = 1
-        return [OUTGOING.UPDATE_DISPLAY_GROUP, version, reqId, contractInfo]
+        return [this._encode(OUTGOING.UPDATE_DISPLAY_GROUP), this._encode(version), this._encode(reqId), this._encode(contractInfo)]
     }
 
     unsubscribeFromGroupEvents(reqId) {
@@ -1701,7 +1743,7 @@ class MessageEncoder {
         }
 
         let version = 1
-        return [OUTGOING.UNSUBSCRIBE_FROM_GROUP_EVENTS, version, reqId]
+        return [this._encode(OUTGOING.UNSUBSCRIBE_FROM_GROUP_EVENTS), this._encode(version), this._encode(reqId)]
     }
 
     reqMatchingSymbols(reqId,pattern) {
@@ -1709,9 +1751,9 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support matching symbols request.')
         }
         return [
-            OUTGOING.REQ_MATCHING_SYMBOLS,
-            reqId,
-            pattern
+            this._encode(OUTGOING.REQ_MATCHING_SYMBOLS),
+            this._encode(reqId),
+            this._encode(pattern)
         ]
     }
 
@@ -1720,7 +1762,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support family codes request.')
         }
         return [
-            OUTGOING.REQ_FAMILY_CODES
+            this._encode(OUTGOING.REQ_FAMILY_CODES)
         ]
     }
 
@@ -1730,7 +1772,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support market depth exchanges request.')
         }
         return [
-            OUTGOING.REQ_MKT_DEPTH_EXCHANGES
+            this._encode(OUTGOING.REQ_MKT_DEPTH_EXCHANGES)
         ]
     }
 
@@ -1739,7 +1781,7 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support smart components request.')
         }
         return [
-            OUTGOING.REQ_SMART_COMPONENTS,reqId,bboExchange
+            this._encode(OUTGOING.REQ_SMART_COMPONENTS), this._encode(reqId), this._encode(bboExchange)
         ]
     }
 
@@ -1748,7 +1790,7 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support news providers request.')
         }
         return [
-            OUTGOING.REQ_NEWS_PROVIDERS
+            this._encode(OUTGOING.REQ_NEWS_PROVIDERS)
         ]
     }
 
@@ -1757,12 +1799,13 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support news article request.')
         }
         let buffer= [
-            OUTGOING.REQ_NEWS_ARTICLE, reqId,
-            providerCode,
-            articleId
+            this._encode(OUTGOING.REQ_NEWS_ARTICLE), 
+            this._encode(reqId),
+            this._encode(providerCode),
+            this._encode(articleId)
         ]
         if (this._serverVersion >= MIN_SERVER_VER.NEWS_QUERY_ORIGINS) {
-            buffer.push(newsArticleOptions)
+            buffer.push(this._encode(newsArticleOptions))
         }
         return buffer
     }
@@ -1780,19 +1823,18 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support historical news request.')
         }
 
-        let buffer =  [
-            OUTGOING.REQ_HISTORICAL_NEWS, 
-            reqId,
-            conId,
-            providerCode,
-            startDateTime,
-            endDateTime,
-            totalResults,
-            historicalNewsOptions
+        let buffer = [this._encode(OUTGOING.REQ_HISTORICAL_NEWS),
+            this._encode(reqId),
+            this._encode(conId),
+            this._encode(providerCode),
+            this._encode(startDateTime),
+            this._encode(endDateTime),
+            this._encode(totalResults),
+            this._encode(historicalNewsOptions)
         ]
 
         if (this._serverVersion >= MIN_SERVER_VER.NEWS_QUERY_ORIGINS) {
-            buffer.push(historicalNewsOptions)
+            buffer.push(this._encode(historicalNewsOptions))
         }
 
         return buffer
@@ -1803,8 +1845,11 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support histogram requests.')
         }
         return [
-            OUTGOING.REQ_HISTOGRAM_DATA,
-            reqId, contract, useRTH ? 1 : 0, timePeriod
+            this._encode(OUTGOING.REQ_HISTOGRAM_DATA),
+            this._encode(reqId), 
+            this._encode(contract), 
+            this._encode(useRTH ? 1 : 0), 
+            this._encode( timePeriod)
         ]
     }
 
@@ -1813,8 +1858,8 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support head time stamp requests.')
         }
         return [
-            OUTGOING.CANCEL_HISTOGRAM_DATA,
-            reqId
+            this._encode(OUTGOING.CANCEL_HISTOGRAM_DATA),
+            this._encode(reqId)
         ]
     }
 
@@ -1823,8 +1868,8 @@ class MessageEncoder {
             return this._emitError(BROKER_ERRORS.NO_VALID_ID, BROKER_ERRORS.UPDATE_TWS,'It does not support market rule requests.')
         }
         return [
-            OUTGOING.REQ_MARKET_RULE,
-            marketRuleId
+            this._encode(OUTGOING.REQ_MARKET_RULE),
+            this._encode(marketRuleId)
         ]
     }
 
@@ -1833,9 +1878,9 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support PnL requests.')
         }
         return [
-            OUTGOING.REQ_PNL,
-            reqId,
-            account, modelCode
+            this._encode( OUTGOING.REQ_PNL),
+            this._encode( reqId),
+            this._encode(account), this._encode(modelCode)
         ]
     }
 
@@ -1844,8 +1889,8 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support PnL requests.')
         }
         return [
-            OUTGOING.CANCEL_PNL,
-            reqId
+            this._encode(OUTGOING.CANCEL_PNL),
+            this._encode(reqId)
         ]
     }
 
@@ -1854,11 +1899,11 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support PnL requests.')
         }
         return [
-            OUTGOING.REQ_PNL_SINGLE,
-            reqId,
-            account,
-            modelCode,
-            conId
+            this._encode(OUTGOING.REQ_PNL_SINGLE),
+            this._encode(reqId),
+            this._encode(account),
+            this._encode( modelCode),
+            this._encode( conId)
         ]
     }
 
@@ -1867,8 +1912,8 @@ class MessageEncoder {
             return this._emitError(reqId, BROKER_ERRORS.UPDATE_TWS,'It does not support PnL requests.')
         }
         return [
-            OUTGOING.CANCEL_PNL_SINGLE,
-            reqId
+            this._encode(OUTGOING.CANCEL_PNL_SINGLE),
+            this._encode(reqId)
         ]
     }      
    
@@ -1886,28 +1931,28 @@ class MessageEncoder {
         if (this._serverVersion < MIN_SERVER_VER.HISTORICAL_TICKS) {
             return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,'It does not support historical ticks request.')
         }
-        let buffer = [OUTGOING.REQ_HISTORICAL_TICKS, tickerId]
+        let buffer = [this._encode(OUTGOING.REQ_HISTORICAL_TICKS), this._encode(tickerId)]
   
-        buffer.push(contract.conId)
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
-        buffer.push(contract.multiplier)
-        buffer.push(contract.exchange)
-        buffer.push(contract.primaryExch)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
-        buffer.push(contract.tradingClass)
-        buffer.push(contract.includeExpired)
-        buffer.push(startDateTime)
-        buffer.push(endDateTime)
-        buffer.push(numberOfTicks)
-        buffer.push(whatToShow)
-        buffer.push(useRTH)
-        buffer.push(ignoreSize)
-        buffer.push(miscOptions)
+        buffer.push(this._encode(contract.conId))
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
+        buffer.push(this._encode(contract.multiplier))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.primaryExch))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
+        buffer.push(this._encode(contract.tradingClass))
+        buffer.push(this._encode(contract.includeExpired))
+        buffer.push(this._encode(startDateTime))
+        buffer.push(this._encode(endDateTime))
+        buffer.push(this._encode(numberOfTicks))
+        buffer.push(this._encode(whatToShow))
+        buffer.push(this._encode(useRTH))
+        buffer.push(this._encode(ignoreSize))
+        buffer.push(this._encode(miscOptions))
 
         return buffer
     }
@@ -1921,25 +1966,25 @@ class MessageEncoder {
             return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,'It does not support ignoreSize and numberOfTicks parameters in tick-by-tick data requests.')
         }
 
-        let buffer = [OUTGOING.REQ_TICK_BY_TICK_DATA, tickerId]
+        let buffer = [this._encode(OUTGOING.REQ_TICK_BY_TICK_DATA), this._encode(tickerId)]
         // send contract fields
-        buffer.push(contract.conId)
-        buffer.push(contract.symbol)
-        buffer.push(contract.secType)
-        buffer.push(contract.expiry)
-        buffer.push(contract.strike)
-        buffer.push(contract.right)
-        buffer.push(contract.multiplier)
-        buffer.push(contract.exchange)
-        buffer.push(contract.primaryExch)
-        buffer.push(contract.currency)
-        buffer.push(contract.localSymbol)
-        buffer.push(contract.tradingClass)
-        buffer.push(tickType)
+        buffer.push(this._encode(contract.conId))
+        buffer.push(this._encode(contract.symbol))
+        buffer.push(this._encode(contract.secType))
+        buffer.push(this._encode(contract.expiry))
+        buffer.push(this._encode(contract.strike))
+        buffer.push(this._encode(contract.right))
+        buffer.push(this._encode(contract.multiplier))
+        buffer.push(this._encode(contract.exchange))
+        buffer.push(this._encode(contract.primaryExch))
+        buffer.push(this._encode(contract.currency))
+        buffer.push(this._encode(contract.localSymbol))
+        buffer.push(this._encode(contract.tradingClass))
+        buffer.push(this._encode(tickType))
 
         if (this._serverVersion > MIN_SERVER_VER.TICK_BY_TICK_IGNORE_SIZE){
-            buffer.push(numberOfTicks)
-            buffer.push(ignoreSize)
+            buffer.push(this._encode(numberOfTicks))
+            buffer.push(this._encode(ignoreSize))
         }
 
         return buffer
@@ -1949,7 +1994,7 @@ class MessageEncoder {
         if (this._serverVersion < MIN_SERVER_VER.TICK_BY_TICK) {
             return this._emitError(tickerId, BROKER_ERRORS.UPDATE_TWS,'It does not support tick-by-tick data cancels.')
         }
-        return [OUTGOING.CANCEL_TICK_BY_TICK_DATA, tickerId]
+        return [this._encode(OUTGOING.CANCEL_TICK_BY_TICK_DATA), this._encode(tickerId)]
     }
 }
 export default MessageEncoder
