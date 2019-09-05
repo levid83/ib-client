@@ -1,47 +1,74 @@
 import { UnderrunError } from './errors'
-import { TICK_TYPE, INCOMING } from './constants'
+import { INCOMING, EOL } from './constants'
 
 class BufferParser {
-  constructor() {
-    this._buffer = []
-  }
-  readAndShift() {
-    if (this._buffer.length === 0) throw new UnderrunError()
-    return this._buffer.shift()
-  }
-  readAndShiftBool() {
-    return !!parseInt(this.readAndShift(), 10)
-  }
-  readAndShiftFloat() {
-    return parseFloat(this.readAndShift())
-  }
-  readAndShiftInt() {
-    return parseInt(this.readAndShift(), 10)
-  }
-  write(tokens) {
-    this._buffer = this._buffer.concat(tokens)
+  constructor(buffer = []) {
+    this._buffer = buffer
   }
 
-  _restoreLastChunk(chunk) {
-    this._buffer = this._buffer.concat(chunk)
+  isEmpty() {
+    return this._buffer.length === 0
+  }
+  read() {
+    if (this.isEmpty()) throw new UnderrunError()
+    return this._buffer.shift()
+  }
+
+  readBool() {
+    return !!parseInt(this.readString(), 10)
+  }
+
+  readFloat() {
+    return parseFloat(this.readString())
+  }
+
+  readInt() {
+    return parseInt(this.readString(), 10)
+  }
+
+  readFloatMax() {
+    let str = this.readString()
+    if (!str) return Number.MAX_VALUE
+    else parseInt(str, 10)
+  }
+
+  readIntMax() {
+    let str = this.readString()
+    if (!str) return 0x7fffffff
+    else parseInt(str, 10)
+  }
+
+  readString() {
+    let str = ''
+    while (!this.isEmpty()) {
+      let element = String.fromCharCode(this.read().toString())
+      if (element === EOL) break
+      str = str.concat(element)
+    }
+    return str
+  }
+
+  readLengthHeader() {
+    let mask = 0xffffffff
+    return (
+      ((mask & this.read()) << 24) |
+      ((mask & this.read()) << 16) |
+      ((mask & this.read()) << 8) |
+      (mask & this.read())
+    )
   }
 
   process(cb = function(err, methodName) {}) {
-    while (true) {
-      let bufferSnapshot = this._buffer.slice()
-      try {
-        let responseCode = this.readAndShiftInt()
-        let responseFunctionName = this._responseCodeToString(responseCode)
-        if (!responseFunctionName) {
-          cb(new Error('Unknown response code ', responseCode), null)
-        } else {
-          cb(null, responseFunctionName)
-        }
-      } catch (e) {
-        if (!(e instanceof UnderrunError)) cb(e, null)
-        this._restoreLastChunk(bufferSnapshot)
-        return
+    try {
+      let responseCode = this.readInt()
+      let responseFunctionName = this._responseCodeToString(responseCode)
+      if (!responseFunctionName) {
+        cb(new Error('Unknown response code ', responseCode), null)
+      } else {
+        cb(null, responseFunctionName)
       }
+    } catch (e) {
+      throw e
     }
   }
 
@@ -52,6 +79,10 @@ class BufferParser {
       }
     }
     return false
+  }
+
+  _restoreLastChunk(chunk) {
+    this._buffer = this._buffer.concat(chunk)
   }
 }
 export default BufferParser
