@@ -5,20 +5,7 @@ import BufferParser from './BufferParser'
 class MessageDecoder {
   constructor(options = { eventHandler: null }) {
     this._eventHandler = options.eventHandler
-    this._bufferParser = new BufferParser()
     this._serverVersion = SERVER_VERSION
-  }
-
-  receiveMessage(message) {
-    this._bufferParser.write(message)
-  }
-
-  decodeMessage() {
-    this._bufferParser.process((err, methodName) => {
-      if (err) throw err
-      if (methodName && typeof this['_' + methodName] === 'function') this['_' + methodName]()
-      else throw new Error('Unknown broker API response: ' + methodName)
-    })
   }
 
   _emit() {
@@ -29,268 +16,274 @@ class MessageDecoder {
     this._serverVersion = version
   }
 
-  _HISTORICAL_TICKS_LAST() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let tickCount = this._bufferParser.readAndShiftInt()
+  decodeMessage(data) {
+    let buffer = new BufferParser(data)
+    buffer.process((err, methodName) => {
+      if (err) throw err
+      if (methodName && typeof this['_' + methodName] === 'function') this['_' + methodName](buffer)
+      else throw new Error('Unknown broker API response: ' + methodName)
+    })
+  }
+
+  decodeServerVersion(data) {
+    let buffer = new BufferParser(data)
+    buffer.readLengthHeader()
+    let serverVersion = buffer.readInt()
+    let connectionTime = buffer.readString()
+    return { serverVersion, connectionTime }
+  }
+
+  _HISTORICAL_TICKS_LAST(buffer) {
+    let reqId = buffer.readInt()
+    let tickCount = buffer.readInt()
 
     let ticks = []
 
     for (let i = 0; i < tickCount; i++) {
-      let time = this._bufferParser.readAndShift()
-      let mask = this._bufferParser.readAndShiftInt()
+      let time = buffer.readString()
+      let mask = buffer.readInt()
       let tickAttribLast = {}
       tickAttribLast.pastLimit = (mask & (1 << 0)) !== 0
       tickAttribLast.unreported = (mask & (1 << 1)) !== 0
 
-      let price = this._bufferParser.readAndShiftFloat()
-      let size = this._bufferParser.readAndShift()
-      let exchange = this._bufferParser.readAndShift()
-      let specialConditions = this._bufferParser.readAndShift()
+      let price = buffer.readFloat()
+      let size = buffer.readInt()
+      let exchange = buffer.readString()
+      let specialConditions = buffer.readString()
 
       ticks.push({ time, tickAttribLast, price, size, exchange, specialConditions })
     }
 
-    let done = this._bufferParser.readAndShiftBool()
+    let done = buffer.readBool()
 
     this._emit('historicalTicksLast', reqId, ticks, done)
-
   }
 
-  _HISTORICAL_TICKS_BID_ASK() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let tickCount = this._bufferParser.readAndShiftInt()
+  _HISTORICAL_TICKS_BID_ASK(buffer) {
+    let reqId = buffer.readInt()
+    let tickCount = buffer.readInt()
 
     let ticks = []
 
     for (let i = 0; i < tickCount; i++) {
-      let time = this._bufferParser.readAndShift()
-      let mask = this._bufferParser.readAndShiftInt()
+      let time = buffer.readString()
+      let mask = buffer.readInt()
 
       let tickAttribBidAsk = {}
       tickAttribBidAsk.askPastHigh = (mask & (1 << 0)) !== 0
       tickAttribBidAsk.bidPastLow = (mask & (1 << 1)) !== 0
 
-      let priceBid = this._bufferParser.readAndShiftFloat()
-      let priceAsk = this._bufferParser.readAndShiftFloat()
-      let sizeBid = this._bufferParser.readAndShift()
-      let sizeAsk = this._bufferParser.readAndShift()
+      let priceBid = buffer.readFloat()
+      let priceAsk = buffer.readFloat()
+      let sizeBid = buffer.readInt()
+      let sizeAsk = buffer.readInt()
 
       ticks.push({ time, tickAttribBidAsk, priceBid, priceAsk, sizeBid, sizeAsk })
     }
 
-    let done = this._bufferParser.readAndShiftBool()
+    let done = buffer.readBool()
 
     this._emit('historicalTicksBidAsk', reqId, ticks, done)
-
   }
 
-  _HISTORICAL_TICKS() {
-    let reqId = this._bufferParser.readAndShiftInt(),
-      tickCount = this._bufferParser.readAndShiftInt()
+  _HISTORICAL_TICKS(buffer) {
+    let reqId = buffer.readInt(),
+      tickCount = buffer.readInt()
 
     let ticks = []
 
     for (let i = 0; i < tickCount; i++) {
-      let time = this._bufferParser.readAndShift()
-      this._bufferParser.readAndShiftInt()//for consistency
-      let price = this._bufferParser.readAndShiftFloat()
-      let size = this._bufferParser.readAndShift()
+      let time = buffer.readString()
+      buffer.readInt() //for consistency
+      let price = buffer.readFloat()
+      let size = buffer.readInt()
 
       ticks.push({ time, price, size })
     }
 
-    let done = this._bufferParser.readAndShiftBool()
+    let done = buffer.readBool()
 
     this._emit('historicalTicks', reqId, ticks, done)
-
   }
 
-  _MARKET_RULE() {
-    let marketRuleId = this._bufferParser.readAndShiftInt()
-    let priceIncrements = [];
-    let nPriceIncrements = this._bufferParser.readAndShiftInt()
+  _MARKET_RULE(buffer) {
+    let marketRuleId = buffer.readInt()
+    let priceIncrements = []
+    let nPriceIncrements = buffer.readInt()
 
     if (nPriceIncrements > 0) {
       for (let i = 0; i < nPriceIncrements; i++) {
-        priceIncrements.push({ lowEdge: this._bufferParser.readAndShiftFloat(), increment: this._bufferParser.readAndShiftFloat() })
+        priceIncrements.push({
+          lowEdge: buffer.readFloat(),
+          increment: buffer.readFloat()
+        })
       }
     } else {
-      priceIncrements = new PriceIncrement[0]
+      priceIncrements = new PriceIncrement[0]()
     }
 
     this._emit('marketRule', marketRuleId, priceIncrements)
-
   }
 
-  _REROUTE_MKT_DEPTH_REQ() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let conId = this._bufferParser.readAndShiftInt()
-    let exchange = this._bufferParser.readAndShift()
+  _REROUTE_MKT_DEPTH_REQ(buffer) {
+    let reqId = buffer.readInt()
+    let conId = buffer.readInt()
+    let exchange = buffer.readString()
 
     this._emit('rerouteMktDepthReq', reqId, conId, exchange)
-
   }
 
-  _REROUTE_MKT_DATA_REQ() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let conId = this._bufferParser.readAndShiftInt()
-    let exchange = this._bufferParser.readAndShift()
+  _REROUTE_MKT_DATA_REQ(buffer) {
+    let reqId = buffer.readInt()
+    let conId = buffer.readInt()
+    let exchange = buffer.readString()
 
     this._emit('rerouteMktDataReq', reqId, conId, exchange)
-
   }
 
-  _HISTORICAL_DATA_UPDATE() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let barCount = this._bufferParser.readAndShiftInt()
-    let date = this._bufferParser.readAndShift()
-    let open = this._bufferParser.readAndShiftFloat()
-    let close = this._bufferParser.readAndShiftFloat()
-    let high = this._bufferParser.readAndShiftFloat()
-    let low = this._bufferParser.readAndShiftFloat()
-    let WAP = this._bufferParser.readAndShiftFloat()
-    let volume = this._bufferParser.readAndShift()
+  _HISTORICAL_DATA_UPDATE(buffer) {
+    let reqId = buffer.readInt()
+    let barCount = buffer.readInt()
+    let date = buffer.readString()
+    let open = buffer.readFloat()
+    let close = buffer.readFloat()
+    let high = buffer.readFloat()
+    let low = buffer.readFloat()
+    let WAP = buffer.readFloat()
+    let volume = buffer.readString()
 
-    this._emit('historicalDataUpdate', reqId, new Bar(date, open, high, low, close, volume, barCount, WAP))
-
+    this._emit(
+      'historicalDataUpdate',
+      reqId,
+      new Bar(date, open, high, low, close, volume, barCount, WAP)
+    )
   }
 
-  _PNL_SINGLE() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let pos = this._bufferParser.readAndShiftInt()
-    let dailyPnL = this._bufferParser.readAndShiftFloat()
-    let unrealizedPnL = Number.MAX_VALUE;
-    let realizedPnL = Number.MAX_VALUE;
+  _PNL_SINGLE(buffer) {
+    let reqId = buffer.readInt()
+    let pos = buffer.readInt()
+    let dailyPnL = buffer.readFloat()
+    let unrealizedPnL = Number.MAX_VALUE
+    let realizedPnL = Number.MAX_VALUE
 
     if (this._serverVersion >= MIN_SERVER_VER.UNREALIZED_PNL) {
-      unrealizedPnL = this._bufferParser.readAndShiftFloat()
+      unrealizedPnL = buffer.readFloat()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.REALIZED_PNL) {
-      realizedPnL = this._bufferParser.readAndShiftFloat()
+      realizedPnL = buffer.readFloat()
     }
 
-    let value = this._bufferParser.readAndShiftFloat()
+    let value = buffer.readFloat()
 
     this._emit('pnlSingle', reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value)
-
   }
 
-  _PNL() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let dailyPnL = this._bufferParser.readAndShiftFloat()
-    let unrealizedPnL = Number.MAX_VALUE;
-    let realizedPnL = Number.MAX_VALUE;
+  _PNL(buffer) {
+    let reqId = buffer.readInt()
+    let dailyPnL = buffer.readFloat()
+    let unrealizedPnL = Number.MAX_VALUE
+    let realizedPnL = Number.MAX_VALUE
 
     if (this._serverVersion >= MIN_SERVER_VER.UNREALIZED_PNL) {
-      unrealizedPnL = this._bufferParser.readAndShiftFloat()
+      unrealizedPnL = buffer.readFloat()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.REALIZED_PNL) {
-      realizedPnL = this._bufferParser.readAndShiftFloat()
+      realizedPnL = buffer.readFloat()
     }
 
     this._emit('pnl', reqId, dailyPnL, unrealizedPnL, realizedPnL)
   }
 
-  _HISTOGRAM_DATA() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let n = this._bufferParser.readAndShiftInt()
+  _HISTOGRAM_DATA(buffer) {
+    let reqId = buffer.readInt()
+    let n = buffer.readInt()
     let items = []
 
     for (let i = 0; i < n; i++) {
-      items.push({ price: this._bufferParser.readAndShiftFloat(), size: this._bufferParser.readAndShift() })
+      items.push({ price: buffer.readFloat(), size: buffer.readInt() })
     }
 
     this._emit('histogramData', reqId, items)
   }
 
-  _HISTORICAL_NEWS_END() {
-    let requestId = this._bufferParser.readAndShiftInt()
-    let hasMore = this._bufferParser.readAndShiftBool()
+  _HISTORICAL_NEWS_END(buffer) {
+    let requestId = buffer.readInt()
+    let hasMore = buffer.readBool()
 
     this._emit('historicalNewsEnd', requestId, hasMore)
   }
 
-  _HISTORICAL_NEWS() {
-    let requestId = this._bufferParser.readAndShiftInt()
-    let time = this._bufferParser.readAndShift()
-    let providerCode = this._bufferParser.readAndShift()
-    let articleId = this._bufferParser.readAndShift()
-    let headline = this._bufferParser.readAndShift()
+  _HISTORICAL_NEWS(buffer) {
+    let requestId = buffer.readInt()
+    let time = buffer.readString()
+    let providerCode = buffer.readString()
+    let articleId = buffer.readString()
+    let headline = buffer.readString()
 
     this._emit('historicalNews', requestId, time, providerCode, articleId, headline)
-
   }
 
-  _NEWS_ARTICLE() {
-    let requestId = this._bufferParser.readAndShiftInt()
-    let articleType = this._bufferParser.readAndShiftInt()
-    let articleText = this._bufferParser.readAndShift()
+  _NEWS_ARTICLE(buffer) {
+    let requestId = buffer.readInt()
+    let articleType = buffer.readInt()
+    let articleText = buffer.readString()
 
     this._emit('newsArticle', requestId, articleType, articleText)
   }
 
-  _NEWS_PROVIDERS() {
+  _NEWS_PROVIDERS(buffer) {
     let newsProviders = []
-    let nNewsProviders = this._bufferParser.readAndShiftInt()
+    let nNewsProviders = buffer.readInt()
 
     if (nNewsProviders > 0) {
       for (let i = 0; i < nNewsProviders; i++) {
-        newsProviders.push({ code: this._bufferParser.readAndShift(), name: this._bufferParser.readAndShift() })
+        newsProviders.push({ code: buffer.readString(), name: buffer.readString() })
       }
     }
 
     this._emit('newsProviders', newsProviders)
   }
 
-  _TICK_NEWS() {
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let timeStamp = this._bufferParser.readAndShift()
-    let providerCode = this._bufferParser.readAndShift()
-    let articleId = this._bufferParser.readAndShift()
-    let headline = this._bufferParser.readAndShift()
-    let extraData = this._bufferParser.readAndShift()
+  _TICK_NEWS(buffer) {
+    let tickerId = buffer.readInt()
+    let timeStamp = buffer.readString()
+    let providerCode = buffer.readString()
+    let articleId = buffer.readString()
+    let headline = buffer.readString()
+    let extraData = buffer.readString()
 
     this._emit('tickNews', tickerId, timeStamp, providerCode, articleId, headline, extraData)
-
   }
 
-  _HEAD_TIMESTAMP() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let headTimestamp = this._bufferParser.readAndShift()
+  _HEAD_TIMESTAMP(buffer) {
+    let reqId = buffer.readInt()
+    let headTimestamp = buffer.readString()
 
     this._emit('headTimestamp', reqId, headTimestamp)
   }
 
-  _MKT_DEPTH_EXCHANGES() {
-    let depthMktDataDescriptions = [];
-    let nDepthMktDataDescriptions = this._bufferParser.readAndShiftInt()
+  _MKT_DEPTH_EXCHANGES(buffer) {
+    let depthMktDataDescriptions = []
+    let nDepthMktDataDescriptions = buffer.readInt()
 
     if (nDepthMktDataDescriptions > 0) {
-
       for (let i = 0; i < nDepthMktDataDescriptions; i++) {
         if (this._serverVersion >= MIN_SERVER_VER.SERVICE_DATA_TYPE) {
           depthMktDataDescriptions.push({
-            exchange: this._bufferParser.readAndShift(),
-            secType: this._bufferParser.readAndShift(),
-            listingExch: this._bufferParser.readAndShift(),
-            serviceDataType: this._bufferParser.readAndShift(),
-            aggGroup: this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
+            exchange: buffer.readString(),
+            secType: buffer.rereadStringad(),
+            listingExch: buffer.readString(),
+            serviceDataType: buffer.readString(),
+            aggGroup: buffer.readIntMax()
           })
         } else {
           depthMktDataDescriptions.push({
-            exchange: this._bufferParser.readAndShift(),
-            secType: this._bufferParser.readAndShift(),
-            listingExch: this._bufferParser.readAndShift(),
-            serviceDataType: this._bufferParser.readAndShift(),
-            aggGroup: this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-          })
-          depthMktDataDescriptions.push({
-            exchange: this._bufferParser.readAndShift(),
-            secType: this._bufferParser.readAndShift(),
-            listingExch: "",
-            serviceDataType: this._bufferParser.readAndShiftBool() ? "Deep2" : "Deep",
+            exchange: buffer.readString(),
+            secType: buffer.readString(),
+            listingExch: '',
+            serviceDataType: buffer.readBool() ? 'Deep2' : 'Deep',
             aggGroup: Number.MAX_VALUE
           })
         }
@@ -300,246 +293,257 @@ class MessageDecoder {
     this._emit('mktDepthExchanges', depthMktDataDescriptions)
   }
 
-  _SYMBOL_SAMPLES() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let contractDescriptions = [];
-    let nContractDescriptions = this._bufferParser.readAndShiftInt()
+  _SYMBOL_SAMPLES(buffer) {
+    let reqId = buffer.readInt()
+    let contractDescriptions = []
+    let nContractDescriptions = buffer.readInt()
 
     if (nContractDescriptions > 0) {
       for (let i = 0; i < nContractDescriptions; i++) {
         // read contract fields
-        let contract = {};
-        contract.conid(this._bufferParser.readAndShiftInt())
-        contract.symbol(this._bufferParser.readAndShift())
-        contract.secType(this._bufferParser.readAndShift())
-        contract.primaryExch(this._bufferParser.readAndShift())
-        contract.currency(this._bufferParser.readAndShift())
+        let contract = {}
+        contract.conid = buffer.readInt()
+        contract.symbol = buffer.readString()
+        contract.secType = buffer.readString()
+        contract.primaryExch = buffer.readString()
+        contract.currency = buffer.readString()
 
         // read derivative sec types list
         let derivativeSecTypes = []
-        let nDerivativeSecTypes = this._bufferParser.readAndShiftInt()
+        let nDerivativeSecTypes = buffer.readInt()
 
         if (nDerivativeSecTypes > 0) {
           for (let j = 0; j < nDerivativeSecTypes; j++) {
-            derivativeSecTypes.push(this._bufferParser.readAndShift())
+            derivativeSecTypes.push(buffer.readString())
           }
         }
 
-        let contractDescription = { contract, derivativeSecTypes };
+        let contractDescription = { contract, derivativeSecTypes }
         contractDescriptions.push(contractDescription)
       }
     }
 
     this._emit('symbolSamples', reqId, contractDescriptions)
   }
-  _FAMILY_CODES() {
-    let familyCodes = [];
-    let nFamilyCodes = this._bufferParser.readAndShiftInt()
+  _FAMILY_CODES(buffer) {
+    let familyCodes = []
+    let nFamilyCodes = buffer.readInt()
 
     if (nFamilyCodes > 0) {
-
       for (let i = 0; i < nFamilyCodes; i++) {
-        familyCodes.push({ accountId: this._bufferParser.readAndShift(), familyCode: this._bufferParser.readAndShift() })
+        familyCodes.push({ accountId: buffer.readString(), familyCode: buffer.readString() })
       }
     }
 
     this._emit('familyCodes', familyCodes)
   }
 
-  _SOFT_DOLLAR_TIERS() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let nTiers = this._bufferParser.readAndShiftInt()
-    let tiers = [];
+  _SOFT_DOLLAR_TIERS(buffer) {
+    let reqId = buffer.readInt()
+    let nTiers = buffer.readInt()
+    let tiers = []
 
     for (let i = 0; i < nTiers; i++) {
-      tiers.push({ name: this._bufferParser.readAndShift(), value: this._bufferParser.readAndShift(), displayName: this._bufferParser.readAndShift() })
+      tiers.push({
+        name: buffer.readString(),
+        value: buffer.readString(),
+        displayName: buffer.readString()
+      })
     }
 
     this._emit('softDollarTiers', reqId, tiers)
   }
 
-  _SECURITY_DEFINITION_OPTION_PARAMETER_END() {
-    let reqId = this._bufferParser.readAndShiftInt()
+  _SECURITY_DEFINITION_OPTION_PARAMETER_END(buffer) {
+    let reqId = buffer.readInt()
 
     this._emit('securityDefinitionOptionalParameterEnd', reqId)
   }
 
-  _SECURITY_DEFINITION_OPTION_PARAMETER() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let exchange = this._bufferParser.readAndShift()
-    let underlyingConId = this._bufferParser.readAndShiftInt()
-    let tradingClass = this._bufferParser.readAndShift()
-    let multiplier = this._bufferParser.readAndShift()
-    let expirationsSize = this._bufferParser.readAndShiftInt()
+  _SECURITY_DEFINITION_OPTION_PARAMETER(buffer) {
+    let reqId = buffer.readInt()
+    let exchange = buffer.readString()
+    let underlyingConId = buffer.readInt()
+    let tradingClass = buffer.readString()
+    let multiplier = buffer.readString()
+    let expirationsSize = buffer.readInt()
     let expirations = []
     let strikes = []
 
     for (let i = 0; i < expirationsSize; i++) {
-      expirations.push(this._bufferParser.readAndShift())
+      expirations.push(buffer.readString())
     }
 
-    let strikesSize = this._bufferParser.readAndShiftInt()
+    let strikesSize = buffer.readInt()
 
     for (let i = 0; i < strikesSize; i++) {
-      strikes.push(this._bufferParser.readAndShiftFloat())
+      strikes.push(buffer.readFloat())
     }
 
-    this._emit('securityDefinitionOptionParameter', reqId, exchange, underlyingConId, tradingClass, multiplier, expirations, strikes)
-
+    this._emit(
+      'securityDefinitionOptionParameter',
+      reqId,
+      exchange,
+      underlyingConId,
+      tradingClass,
+      multiplier,
+      expirations,
+      strikes
+    )
   }
 
-  _VERIFY_AND_AUTH_COMPLETED() {
-    let version = this._bufferParser.readAndShiftInt()
-    let isSuccessfulStr = this._bufferParser.readAndShift()
+  _VERIFY_AND_AUTH_COMPLETED(buffer) {
+    let version = buffer.readInt()
+    let isSuccessfulStr = buffer.readString()
     let isSuccessful = isSuccessfulStr === 'true'
-    let errorText = this._bufferParser.readAndShift()
+    let errorText = buffer.readString()
 
     this._emit('verifyAndAuthCompleted', isSuccessful, errorText)
   }
 
-  _VERIFY_AND_AUTH_MESSAGE_API() {
-    let version = this._bufferParser.readAndShiftInt()
-    let apiData = this._bufferParser.readAndShift()
-    let xyzChallenge = this._bufferParser.readAndShift()
+  _VERIFY_AND_AUTH_MESSAGE_API(buffer) {
+    let version = buffer.readInt()
+    let apiData = buffer.readString()
+    let xyzChallenge = buffer.readString()
 
     this._emit('verifyAndAuthMessageAPI', apiData, xyzChallenge)
   }
 
-  _DISPLAY_GROUP_UPDATED() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let contractInfo = this._bufferParser.readAndShift()
+  _DISPLAY_GROUP_UPDATED(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let contractInfo = buffer.readString()
 
     this._emit('displayGroupUpdated', reqId, contractInfo)
   }
 
-  _DISPLAY_GROUP_LIST() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let groups = this._bufferParser.readAndShift()
+  _DISPLAY_GROUP_LIST(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let groups = buffer.readString()
 
     this._emit('displayGroupList', reqId, groups)
   }
 
-  _VERIFY_COMPLETED() {
-    let version = this._bufferParser.readAndShiftInt()
-    let isSuccessfulStr = this._bufferParser.readAndShift()
-    let isSuccessful = "true".equals(isSuccessfulStr)
-    let errorText = this._bufferParser.readAndShift()
+  _VERIFY_COMPLETED(buffer) {
+    let version = buffer.readInt()
+    let isSuccessfulStr = buffer.readString()
+    let isSuccessful = 'true'.equals(isSuccessfulStr)
+    let errorText = buffer.readString()
     this._emit('verifyCompleted', isSuccessful, errorText)
   }
 
-  _VERIFY_MESSAGE_API() {
-    let version = this._bufferParser.readAndShiftInt()
-    let apiData = this._bufferParser.readAndShift()
+  _VERIFY_MESSAGE_API(buffer) {
+    let version = buffer.readInt()
+    let apiData = buffer.readString()
 
     this._emit('verifyMessageAPI', apiData)
   }
 
-  _COMMISSION_REPORT() {
-    let version = this._bufferParser.readAndShiftInt()
+  _COMMISSION_REPORT(buffer) {
+    let version = buffer.readInt()
     let commissionReport = {}
-    commissionReport.execId = this._bufferParser.readAndShift()
-    commissionReport.commission = this._bufferParser.readAndShiftFloat()
-    commissionReport.currency = this._bufferParser.readAndShift()
-    commissionReport.realizedPNL = this._bufferParser.readAndShiftFloat()
-    commissionReport.yield = this._bufferParser.readAndShiftFloat()
-    commissionReport.yieldRedemptionDate = this._bufferParser.readAndShiftInt()
+    commissionReport.execId = buffer.readString()
+    commissionReport.commission = buffer.readFloat()
+    commissionReport.currency = buffer.readString()
+    commissionReport.realizedPNL = buffer.readFloat()
+    commissionReport.yield = buffer.readFloat()
+    commissionReport.yieldRedemptionDate = buffer.readInt()
     this._emit('commissionReport', commissionReport)
   }
 
-  _MARKET_DATA_TYPE() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let marketDataType = this._bufferParser.readAndShiftInt()
+  _MARKET_DATA_TYPE(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let marketDataType = buffer.readInt()
     this._emit('marketDataType', reqId, marketDataType)
   }
 
-  _TICK_SNAPSHOT_END() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
+  _TICK_SNAPSHOT_END(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
     this._emit('tickSnapshotEnd', reqId)
   }
 
-  _DELTA_NEUTRAL_VALIDATION() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
+  _DELTA_NEUTRAL_VALIDATION(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
     let deltaNeutralContract = {}
-    deltaNeutralContract.conId = this._bufferParser.readAndShiftInt()
-    deltaNeutralContract.delta = this._bufferParser.readAndShiftFloat()
-    underdeltaNeutralContractComp.price = this._bufferParser.readAndShiftFloat()
+    deltaNeutralContract.conId = buffer.readInt()
+    deltaNeutralContract.delta = buffer.readFloat()
+    underdeltaNeutralContractComp.price = buffer.readFloat()
     this._emit('deltaNeutralValidation', reqId, deltaNeutralContract)
   }
 
-  _EXECUTION_DATA_END() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
+  _EXECUTION_DATA_END(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
     this._emit('execDetailsEnd', reqId)
   }
 
-  _ACCT_DOWNLOAD_END() {
-    let version = this._bufferParser.readAndShiftInt()
-    let accountName = this._bufferParser.readAndShift()
+  _ACCT_DOWNLOAD_END(buffer) {
+    let version = buffer.readInt()
+    let accountName = buffer.readString()
     this._emit('accountDownloadEnd', accountName)
   }
 
-  _OPEN_ORDER_END() {
-    let version = this._bufferParser.readAndShiftInt()
+  _OPEN_ORDER_END(buffer) {
+    let version = buffer.readInt()
     this._emit('openOrderEnd')
   }
 
-
-  _CONTRACT_DATA_END() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
+  _CONTRACT_DATA_END(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
     this._emit('contractDetailsEnd', reqId)
   }
 
-  _FUNDAMENTAL_DATA() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let data = this._bufferParser.readAndShift()
+  _FUNDAMENTAL_DATA(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let data = buffer.readString()
     this._emit('fundamentalData', reqId, data)
   }
 
-  _REAL_TIME_BARS() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let time = this._bufferParser.readAndShiftInt()
-    let open = this._bufferParser.readAndShiftFloat()
-    let high = this._bufferParser.readAndShiftFloat()
-    let low = this._bufferParser.readAndShiftFloat()
-    let close = this._bufferParser.readAndShiftFloat()
-    let volume = this._bufferParser.readAndShiftInt()
-    let wap = this._bufferParser.readAndShiftFloat()
-    let count = this._bufferParser.readAndShiftInt()
+  _REAL_TIME_BARS(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let time = buffer.readString()
+    let open = buffer.readFloat()
+    let high = buffer.readFloat()
+    let low = buffer.readFloat()
+    let close = buffer.readFloat()
+    let volume = buffer.readInt()
+    let wap = buffer.readFloat()
+    let count = buffer.readInt()
     this._emit('realtimeBar', reqId, time, open, high, low, close, volume, wap, count)
   }
 
-  _CURRENT_TIME() {
-    let version = this._bufferParser.readAndShiftInt()
-    let time = this._bufferParser.readAndShiftInt()
+  _CURRENT_TIME(buffer) {
+    let version = buffer.readInt()
+    let time = buffer.readString()
     this._emit('currentTime', time)
   }
 
-  _SCANNER_PARAMETERS() {
-    let version = this._bufferParser.readAndShiftInt()
-    let xml = this._bufferParser.readAndShift()
+  _SCANNER_PARAMETERS(buffer) {
+    let version = buffer.readInt()
+    let xml = buffer.readString()
     this._emit('scannerParameters', xml)
   }
 
-  _HISTORICAL_DATA() {
-    let version = this._serverVersion < MIN_SERVER_VER.SYNT_REALTIME_BARS ? this._bufferParser.readAndShiftInt() : Number.MAX_VALUE
-    let reqId = this._bufferParser.readAndShiftInt()
+  _HISTORICAL_DATA(buffer) {
+    let version =
+      this._serverVersion < MIN_SERVER_VER.SYNT_REALTIME_BARS ? buffer.readInt() : Number.MAX_VALUE
+    let reqId = buffer.readInt()
     let completedIndicator = 'finished'
     let startDateStr
     let endDateStr
     if (version >= 2) {
-      startDateStr = this._bufferParser.readAndShift()
-      endDateStr = this._bufferParser.readAndShift()
+      startDateStr = buffer.readString()
+      endDateStr = buffer.readString()
       completedIndicator += '-' + startDateStr + '-' + endDateStr
     }
-    let itemCount = this._bufferParser.readAndShiftInt()
+    let itemCount = buffer.readInt()
     let time
     let open
     let high
@@ -550,20 +554,23 @@ class MessageDecoder {
     let hasGaps
     let barCount
     while (itemCount--) {
-      time = this._bufferParser.readAndShift()
-      open = this._bufferParser.readAndShiftFloat()
-      high = this._bufferParser.readAndShiftFloat()
-      low = this._bufferParser.readAndShiftFloat()
-      close = this._bufferParser.readAndShiftFloat()
-      volume = this._serverVersion < MIN_SERVER_VER.SYNT_REALTIME_BARS ? this._bufferParser.readAndShiftInt() : this._bufferParser.readAndShift()
-      WAP = this._bufferParser.readAndShiftFloat()
+      time = buffer.readString()
+      open = buffer.readFloat()
+      high = buffer.readFloat()
+      low = buffer.readFloat()
+      close = buffer.readFloat()
+      volume =
+        this._serverVersion < MIN_SERVER_VER.SYNT_REALTIME_BARS
+          ? buffer.readInt()
+          : buffer.readString()
+      WAP = buffer.readFloat()
       if (this._serverVersion < MIN_SERVER_VER.SYNT_REALTIME_BARS) {
-      /*let hasGaps = */this._bufferParser.readAndShift()
+        /*let hasGaps = */ buffer.readString()
       }
 
       barCount = -1
       if (version >= 3) {
-        barCount = this._bufferParser.readAndShiftInt()
+        barCount = buffer.readInt()
       }
       this._emit('historicalData', reqId, {
         time,
@@ -580,503 +587,519 @@ class MessageDecoder {
     this._emit('historicalDataEnd', reqId, startDateStr, endDateStr)
   }
 
-  _RECEIVE_FA() {
-    let version = this._bufferParser.readAndShiftInt()
-    let faDataType = this._bufferParser.readAndShiftInt()
-    let xml = this._bufferParser.readAndShift()
+  _RECEIVE_FA(buffer) {
+    let version = buffer.readInt()
+    let faDataType = buffer.readInt()
+    let xml = buffer.readString()
     this._emit('receiveFA', faDataType, xml)
   }
 
-  _MANAGED_ACCTS() {
-    let version = this._bufferParser.readAndShiftInt()
-    let accountsList = this._bufferParser.readAndShift()
+  _MANAGED_ACCTS(buffer) {
+    let version = buffer.readInt()
+    let accountsList = buffer.readString()
     this._emit('managedAccounts', accountsList)
   }
 
-  _NEWS_BULLETINS() {
-    let version = this._bufferParser.readAndShiftInt()
-    let newsMsgId = this._bufferParser.readAndShiftInt()
-    let newsMsgType = this._bufferParser.readAndShiftInt()
-    let newsMessage = this._bufferParser.readAndShift()
-    let originatingExch = this._bufferParser.readAndShift()
+  _NEWS_BULLETINS(buffer) {
+    let version = buffer.readInt()
+    let newsMsgId = buffer.readInt()
+    let newsMsgType = buffer.readInt()
+    let newsMessage = buffer.readString()
+    let originatingExch = buffer.readString()
     this._emit('updateNewsBulletin', newsMsgId, newsMsgType, newsMessage, originatingExch)
   }
 
-  _MARKET_DEPTH_L2() {
-    let version = this._bufferParser.readAndShiftInt()
-    let id = this._bufferParser.readAndShiftInt()
-    let position = this._bufferParser.readAndShiftInt()
-    let marketMaker = this._bufferParser.readAndShift()
-    let operation = this._bufferParser.readAndShiftInt()
-    let side = this._bufferParser.readAndShiftInt()
-    let price = this._bufferParser.readAndShiftFloat()
-    let size = this._bufferParser.readAndShiftInt()
+  _MARKET_DEPTH_L2(buffer) {
+    let version = buffer.readInt()
+    let id = buffer.readInt()
+    let position = buffer.readInt()
+    let marketMaker = buffer.readString()
+    let operation = buffer.readInt()
+    let side = buffer.readInt()
+    let price = buffer.readFloat()
+    let size = buffer.readInt()
 
-    let isSmartDepth = this._serverVersion >= MIN_SERVER_VER.SMART_DEPTH ? this._bufferParser.readAndShiftBool() : false
-    this._emit('updateMktDepthL2', id, position, marketMaker, operation, side, price, size, isSmartDepth)
+    let isSmartDepth = this._serverVersion >= MIN_SERVER_VER.SMART_DEPTH ? buffer.readBool() : false
+    this._emit(
+      'updateMktDepthL2',
+      id,
+      position,
+      marketMaker,
+      operation,
+      side,
+      price,
+      size,
+      isSmartDepth
+    )
   }
 
-  _MARKET_DEPTH() {
-    let version = this._bufferParser.readAndShiftInt()
-    let id = this._bufferParser.readAndShiftInt()
-    let position = this._bufferParser.readAndShiftInt()
-    let operation = this._bufferParser.readAndShiftInt()
-    let side = this._bufferParser.readAndShiftInt()
-    let price = this._bufferParser.readAndShiftFloat()
-    let size = this._bufferParser.readAndShiftInt()
+  _MARKET_DEPTH(buffer) {
+    let version = buffer.readInt()
+    let id = buffer.readInt()
+    let position = buffer.readInt()
+    let operation = buffer.readInt()
+    let side = buffer.readInt()
+    let price = buffer.readFloat()
+    let size = buffer.readInt()
     this._emit('updateMktDepth', id, position, operation, side, price, size)
   }
 
-  _EXECUTION_DATA() {
-    let version = this._serverVersion < MIN_SERVER_VER.LAST_LIQUIDITY ? this._bufferParser.readAndShiftInt() : this._serverVersion
+  _EXECUTION_DATA(buffer) {
+    let version =
+      this._serverVersion < MIN_SERVER_VER.LAST_LIQUIDITY ? buffer.readInt() : this._serverVersion
     let reqId = -1
     if (version >= 7) {
-      reqId = this._bufferParser.readAndShiftInt()
+      reqId = buffer.readInt()
     }
-    let orderId = this._bufferParser.readAndShiftInt()
+    let orderId = buffer.readInt()
     // read contract fields
     let contract = {}
     if (version >= 5) {
-      contract.conId = this._bufferParser.readAndShiftInt()
+      contract.conId = buffer.readInt()
     }
-    contract.symbol = this._bufferParser.readAndShift()
-    contract.secType = this._bufferParser.readAndShift()
-    contract.expiry = this._bufferParser.readAndShift()
-    contract.strike = this._bufferParser.readAndShiftFloat()
-    contract.right = this._bufferParser.readAndShift()
+    contract.symbol = buffer.readString()
+    contract.secType = buffer.readString()
+    contract.expiry = buffer.readString()
+    contract.strike = buffer.readFloat()
+    contract.right = buffer.readString()
     if (version >= 9) {
-      contract.multiplier = this._bufferParser.readAndShift()
+      contract.multiplier = buffer.readString()
     }
-    contract.exchange = this._bufferParser.readAndShift()
-    contract.currency = this._bufferParser.readAndShift()
-    contract.localSymbol = this._bufferParser.readAndShift()
+    contract.exchange = buffer.readString()
+    contract.currency = buffer.readString()
+    contract.localSymbol = buffer.readString()
     if (version >= 10) {
-      contract.tradingClass = this._bufferParser.readAndShift()
+      contract.tradingClass = buffer.readString()
     }
     let exec = {}
     exec.orderId = orderId
-    exec.execId = this._bufferParser.readAndShift()
-    exec.time = this._bufferParser.readAndShift()
-    exec.acctNumber = this._bufferParser.readAndShift()
-    exec.exchange = this._bufferParser.readAndShift()
-    exec.side = this._bufferParser.readAndShift()
+    exec.execId = buffer.readString()
+    exec.time = buffer.readString()
+    exec.acctNumber = buffer.readString()
+    exec.exchange = buffer.readString()
+    exec.side = buffer.readString()
 
-
-    exec.shares = this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS ? this._bufferParser.readAndShiftFloat() : this._bufferParser.readAndShift()
-    exec.price = this._bufferParser.readAndShiftFloat()
+    exec.shares =
+      this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS
+        ? buffer.readFloat()
+        : buffer.readInt()
+    exec.price = buffer.readFloat()
     if (version >= 2) {
-      exec.permId = this._bufferParser.readAndShiftInt()
+      exec.permId = buffer.readInt()
     }
     if (version >= 3) {
-      exec.clientId = this._bufferParser.readAndShiftInt()
+      exec.clientId = buffer.readInt()
     }
     if (version >= 4) {
-      exec.liquidation = this._bufferParser.readAndShiftInt()
+      exec.liquidation = buffer.readInt()
     }
     if (version >= 6) {
-      exec.cumQty = this._bufferParser.readAndShiftInt()
-      exec.avgPrice = this._bufferParser.readAndShiftFloat()
+      exec.cumQty = buffer.readFloat()
+      exec.avgPrice = buffer.readFloat()
     }
     if (version >= 8) {
-      exec.orderRef = this._bufferParser.readAndShift()
+      exec.orderRef = buffer.readString()
     }
     if (version >= 9) {
-      exec.evRule = this._bufferParser.readAndShift()
-      exec.evMultiplier = this._bufferParser.readAndShiftFloat()
+      exec.evRule = buffer.readString()
+      exec.evMultiplier = buffer.readFloat()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.MODELS_SUPPORT) {
-      exec.modelCode = this._bufferParser.readAndShift()
+      exec.modelCode = buffer.readString()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.LAST_LIQUIDITY) {
-      exec.lastLiquidity = this._bufferParser.readAndShiftInt()
+      exec.lastLiquidity = buffer.readInt()
     }
-
 
     this._emit('execDetails', reqId, contract, exec)
   }
 
-  _BOND_CONTRACT_DATA() {
-    let version = this._bufferParser.readAndShiftInt()
+  _BOND_CONTRACT_DATA(buffer) {
+    let version = buffer.readInt()
     let reqId = -1
     if (version >= 3) {
-      reqId = this._bufferParser.readAndShiftInt()
+      reqId = buffer.readInt()
     }
     let contract = {
       summary: {}
     }
-    contract.summary.symbol = this._bufferParser.readAndShift()
-    contract.summary.secType = this._bufferParser.readAndShift()
-    contract.cusip = this._bufferParser.readAndShift()
-    contract.coupon = this._bufferParser.readAndShiftFloat()
-    contract.maturity = this._bufferParser.readAndShift()
-    contract.issueDate = this._bufferParser.readAndShift()
-    contract.ratings = this._bufferParser.readAndShift()
-    contract.bondType = this._bufferParser.readAndShift()
-    contract.couponType = this._bufferParser.readAndShift()
-    contract.convertible = this._bufferParser.readAndShiftBool()
-    contract.callable = this._bufferParser.readAndShiftBool()
-    contract.putable = this._bufferParser.readAndShiftBool()
-    contract.descAppend = this._bufferParser.readAndShift()
-    contract.summary.exchange = this._bufferParser.readAndShift()
-    contract.summary.currency = this._bufferParser.readAndShift()
-    contract.marketName = this._bufferParser.readAndShift()
-    contract.summary.tradingClass = this._bufferParser.readAndShift()
-    contract.summary.conId = this._bufferParser.readAndShiftInt()
-    contract.minTick = this._bufferParser.readAndShiftFloat()
+    contract.summary.symbol = buffer.readString()
+    contract.summary.secType = buffer.readString()
+    contract.cusip = buffer.readString()
+    contract.coupon = buffer.readFloat()
+    contract.maturity = buffer.readString()
+    contract.issueDate = buffer.readString()
+    contract.ratings = buffer.readString()
+    contract.bondType = buffer.readString()
+    contract.couponType = buffer.readString()
+    contract.convertible = buffer.readBool()
+    contract.callable = buffer.readBool()
+    contract.putable = buffer.readBool()
+    contract.descAppend = buffer.readString()
+    contract.summary.exchange = buffer.readString()
+    contract.summary.currency = buffer.readString()
+    contract.marketName = buffer.readString()
+    contract.summary.tradingClass = buffer.readString()
+    contract.summary.conId = buffer.readInt()
+    contract.minTick = buffer.readFloat()
     if (this._serverVersion >= MIN_SERVER_VER.MD_SIZE_MULTIPLIER) {
-      contract.mdSizeMultiplier = this._bufferParser.readAndShiftInt()
+      contract.mdSizeMultiplier = buffer.readInt()
     }
-    contract.orderTypes = this._bufferParser.readAndShift()
-    contract.validExchanges = this._bufferParser.readAndShift()
+    contract.orderTypes = buffer.readString()
+    contract.validExchanges = buffer.readString()
     if (version >= 2) {
-      contract.nextOptionDate = this._bufferParser.readAndShift()
-      contract.nextOptionType = this._bufferParser.readAndShift()
-      contract.nextOptionPartial = this._bufferParser.readAndShiftBool()
-      contract.notes = this._bufferParser.readAndShift()
+      contract.nextOptionDate = buffer.readString()
+      contract.nextOptionType = buffer.readString()
+      contract.nextOptionPartial = buffer.readBool()
+      contract.notes = buffer.readString()
     }
     if (version >= 4) {
-      contract.longName = this._bufferParser.readAndShift()
+      contract.longName = buffer.readString()
     }
     if (version >= 6) {
-      contract.evRule = this._bufferParser.readAndShift()
-      contract.evMultiplier = this._bufferParser.readAndShiftFloat()
+      contract.evRule = buffer.readString()
+      contract.evMultiplier = buffer.readFloat()
     }
     let secIdListCount
     let tagValue
     if (version >= 5) {
-      secIdListCount = this._bufferParser.readAndShiftInt()
+      secIdListCount = buffer.readInt()
       if (secIdListCount > 0) {
         contract.secIdList = []
         while (secIdListCount--) {
           tagValue = {}
-          tagValue.tag = this._bufferParser.readAndShift()
-          tagValue.value = this._bufferParser.readAndShift()
+          tagValue.tag = buffer.readString()
+          tagValue.value = buffer.readString()
           contract.secIdList.push(tagValue)
         }
       }
     }
     if (this._serverVersion >= MIN_SERVER_VER.AGG_GROUP) {
-      contract.aggGroup = this._bufferParser.readAndShiftInt()
+      contract.aggGroup = buffer.readInt()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.MARKET_RULES) {
-      contract.marketRuleIds = this._bufferParser.readAndShift()
+      contract.marketRuleIds = buffer.readString()
     }
     this._emit('bondContractDetails', reqId, contract)
   }
 
-  _CONTRACT_DATA() {
-    let version = this._bufferParser.readAndShiftInt()
+  _CONTRACT_DATA(buffer) {
+    let version = buffer.readInt()
     let reqId = -1
     if (version >= 3) {
-      reqId = this._bufferParser.readAndShiftInt()
+      reqId = buffer.readInt()
     }
     let contract = {
       summary: {}
     }
-    contract.summary.symbol = this._bufferParser.readAndShift()
-    contract.summary.secType = this._bufferParser.readAndShift()
-    contract.summary.expiry = this._bufferParser.readAndShift()
-    contract.summary.strike = this._bufferParser.readAndShiftFloat()
-    contract.summary.right = this._bufferParser.readAndShift()
-    contract.summary.exchange = this._bufferParser.readAndShift()
-    contract.summary.currency = this._bufferParser.readAndShift()
-    contract.summary.localSymbol = this._bufferParser.readAndShift()
-    contract.marketName = this._bufferParser.readAndShift()
-    contract.summary.tradingClass = this._bufferParser.readAndShift()
-    contract.summary.conId = this._bufferParser.readAndShiftInt()
-    contract.minTick = this._bufferParser.readAndShiftFloat()
+    contract.summary.symbol = buffer.readString()
+    contract.summary.secType = buffer.readString()
+    contract.summary.expiry = buffer.readString()
+    contract.summary.strike = buffer.readFloat()
+    contract.summary.right = buffer.readString()
+    contract.summary.exchange = buffer.readString()
+    contract.summary.currency = buffer.readString()
+    contract.summary.localSymbol = buffer.readString()
+    contract.marketName = buffer.readString()
+    contract.summary.tradingClass = buffer.readString()
+    contract.summary.conId = buffer.readInt()
+    contract.minTick = buffer.readFloat()
     if (this._serverVersion >= MIN_SERVER_VER.MD_SIZE_MULTIPLIER) {
-      contract.mdSizeMultiplier = this._bufferParser.readAndShiftInt()
+      contract.mdSizeMultiplier = buffer.readInt()
     }
-    contract.summary.multiplier = this._bufferParser.readAndShift()
-    contract.orderTypes = this._bufferParser.readAndShift()
-    contract.validExchanges = this._bufferParser.readAndShift()
+    contract.summary.multiplier = buffer.readString()
+    contract.orderTypes = buffer.readString()
+    contract.validExchanges = buffer.readString()
     if (version >= 2) {
-      contract.priceMagnifier = this._bufferParser.readAndShiftInt()
+      contract.priceMagnifier = buffer.readInt()
     }
     if (version >= 4) {
-      contract.underConId = this._bufferParser.readAndShiftInt()
+      contract.underConId = buffer.readInt()
     }
     if (version >= 5) {
-      contract.longName = this._bufferParser.readAndShift()
-      contract.summary.primaryExch = this._bufferParser.readAndShift()
+      contract.longName = buffer.readString()
+      contract.summary.primaryExch = buffer.readString()
     }
     if (version >= 6) {
-      contract.contractMonth = this._bufferParser.readAndShift()
-      contract.industry = this._bufferParser.readAndShift()
-      contract.category = this._bufferParser.readAndShift()
-      contract.subcategory = this._bufferParser.readAndShift()
-      contract.timeZoneId = this._bufferParser.readAndShift()
-      contract.tradingHours = this._bufferParser.readAndShift()
-      contract.liquidHours = this._bufferParser.readAndShift()
+      contract.contractMonth = buffer.readString()
+      contract.industry = buffer.readString()
+      contract.category = buffer.readString()
+      contract.subcategory = buffer.readString()
+      contract.timeZoneId = buffer.readString()
+      contract.tradingHours = buffer.readString()
+      contract.liquidHours = buffer.readString()
     }
     if (version >= 8) {
-      contract.evRule = this._bufferParser.readAndShift()
-      contract.evMultiplier = this._bufferParser.readAndShiftFloat()
+      contract.evRule = buffer.readString()
+      contract.evMultiplier = buffer.readFloat()
     }
     let secIdListCount
     let tagValue
 
     if (version >= 7) {
-      secIdListCount = this._bufferParser.readAndShiftInt()
+      secIdListCount = buffer.readInt()
       if (secIdListCount > 0) {
         contract.secIdList = []
         for (let i = 0; i < secIdListCount; ++i) {
           tagValue = {}
-          tagValue.tag = this._bufferParser.readAndShift()
-          tagValue.value = this._bufferParser.readAndShift()
+          tagValue.tag = buffer.readString()
+          tagValue.value = buffer.readString()
           contract.secIdList.push(tagValue)
         }
       }
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.AGG_GROUP) {
-      contract.aggGroup = this._bufferParser.readAndShiftInt()
+      contract.aggGroup = buffer.readInt()
     }
     if (this._serverVersion >= MIN_SERVER_VER.UNDERLYING_INFO) {
-      contract.underSymbol = this._bufferParser.readAndShift()
-      contract.underSecType = this._bufferParser.readAndShift()
+      contract.underSymbol = buffer.readString()
+      contract.underSecType = buffer.readString()
     }
     if (this._serverVersion >= MIN_SERVER_VER.MARKET_RULES) {
-      contract.marketRuleIds = this._bufferParser.readAndShift()
+      contract.marketRuleIds = buffer.readString()
     }
     if (this._serverVersion >= MIN_SERVER_VER.REAL_EXPIRATION_DATE) {
-      contract.realExpirationDate = this._bufferParser.readAndShift()
+      contract.realExpirationDate = buffer.readString()
     }
 
     this._emit('contractDetails', reqId, contract)
   }
 
-  _SCANNER_DATA() {
-    let version = this._bufferParser.readAndShiftInt()
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let numberOfElements = this._bufferParser.readAndShiftInt()
+  _SCANNER_DATA(buffer) {
+    let version = buffer.readInt()
+    let tickerId = buffer.readInt()
+    let numberOfElements = buffer.readInt()
     let rank
     while (numberOfElements--) {
       let contract = {
         summary: {}
       }
-      rank = this._bufferParser.readAndShiftInt()
+      rank = buffer.readInt()
       if (version >= 3) {
-        contract.summary.conId = this._bufferParser.readAndShiftInt()
+        contract.summary.conId = buffer.readInt()
       }
-      contract.summary.symbol = this._bufferParser.readAndShift()
-      contract.summary.secType = this._bufferParser.readAndShift()
-      contract.summary.expiry = this._bufferParser.readAndShift()
-      contract.summary.strike = this._bufferParser.readAndShiftFloat()
-      contract.summary.right = this._bufferParser.readAndShift()
-      contract.summary.exchange = this._bufferParser.readAndShift()
-      contract.summary.currency = this._bufferParser.readAndShift()
-      contract.summary.localSymbol = this._bufferParser.readAndShift()
-      contract.marketName = this._bufferParser.readAndShift()
-      contract.summary.tradingClass = this._bufferParser.readAndShift()
-      let distance = this._bufferParser.readAndShift()
-      let benchmark = this._bufferParser.readAndShift()
-      let projection = this._bufferParser.readAndShift()
+      contract.summary.symbol = buffer.readString()
+      contract.summary.secType = buffer.readString()
+      contract.summary.expiry = buffer.readString()
+      contract.summary.strike = buffer.readFloat()
+      contract.summary.right = buffer.readString()
+      contract.summary.exchange = buffer.readString()
+      contract.summary.currency = buffer.readString()
+      contract.summary.localSymbol = buffer.readString()
+      contract.marketName = buffer.readString()
+      contract.summary.tradingClass = buffer.readString()
+      let distance = buffer.readString()
+      let benchmark = buffer.readString()
+      let projection = buffer.readString()
       let legsStr = null
       if (version >= 2) {
-        legsStr = this._bufferParser.readAndShift()
+        legsStr = buffer.readString()
       }
       this._emit('scannerData', tickerId, rank, contract, distance, benchmark, projection, legsStr)
     }
     this._emit('scannerDataEnd', tickerId)
   }
 
-  _NEXT_VALID_ID() {
-    let version = this._bufferParser.readAndShiftInt()
-    let orderId = this._bufferParser.readAndShiftInt()
+  _NEXT_VALID_ID(buffer) {
+    let version = buffer.readInt()
+    let orderId = buffer.readInt()
     this._emit('nextValidId', orderId)
   }
 
-  _OPEN_ORDER() {
+  _OPEN_ORDER(buffer) {
     // read version
-    let version = this._serverVersion < MIN_SERVER_VER.ORDER_CONTAINER ? this._bufferParser.readAndShiftInt() : this._serverVersion
+    let version =
+      this._serverVersion < MIN_SERVER_VER.ORDER_CONTAINER ? buffer.readInt() : this._serverVersion
     // read order id
     let order = {}
-    order.orderId = this._bufferParser.readAndShiftInt()
+    order.orderId = buffer.readInt()
     // read contract fields
     let contract = {}
     if (version >= 17) {
-      contract.conId = this._bufferParser.readAndShiftInt()
+      contract.conId = buffer.readInt()
     }
-    contract.symbol = this._bufferParser.readAndShift()
-    contract.secType = this._bufferParser.readAndShift()
-    contract.expiry = this._bufferParser.readAndShift()
-    contract.strike = this._bufferParser.readAndShiftFloat()
-    contract.right = this._bufferParser.readAndShift()
+    contract.symbol = buffer.readString()
+    contract.secType = buffer.readString()
+    contract.expiry = buffer.readString()
+    contract.strike = buffer.readFloat()
+    contract.right = buffer.readString()
     if (version >= 32) {
-      contract.multiplier = this._bufferParser.readAndShift()
+      contract.multiplier = buffer.readString()
     }
-    contract.exchange = this._bufferParser.readAndShift()
-    contract.currency = this._bufferParser.readAndShift()
+    contract.exchange = buffer.readString()
+    contract.currency = buffer.readString()
     if (version >= 2) {
-      contract.localSymbol = this._bufferParser.readAndShift()
+      contract.localSymbol = buffer.readString()
     }
     if (version >= 32) {
-      contract.tradingClass = this._bufferParser.readAndShift()
+      contract.tradingClass = buffer.readString()
     }
     // read order fields
-    order.action = this._bufferParser.readAndShift()
-    order.totalQuantity = this._serverVersion < MIN_SERVER_VER.FRACTIONAL_POSITIONS ? this._bufferParser.readAndShiftFloat() : this._bufferParser.readAndShiftInt()
-    order.orderType = this._bufferParser.readAndShift()
+    order.action = buffer.readString()
+    order.totalQuantity =
+      this._serverVersion < MIN_SERVER_VER.FRACTIONAL_POSITIONS
+        ? buffer.readFloat()
+        : buffer.readInt()
+    order.orderType = buffer.readString()
     if (version < 29) {
-      order.lmtPrice = this._bufferParser.readAndShiftFloat()
+      order.lmtPrice = buffer.readFloat()
     } else {
-      order.lmtPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+      order.lmtPrice = buffer.readFloatMax()
     }
     if (version < 30) {
-      order.auxPrice = this._bufferParser.readAndShiftFloat()
+      order.auxPrice = buffer.readFloat()
     } else {
-      order.auxPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+      order.auxPrice = buffer.readFloatMax()
     }
-    order.tif = this._bufferParser.readAndShift()
-    order.ocaGroup = this._bufferParser.readAndShift()
-    order.account = this._bufferParser.readAndShift()
-    order.openClose = this._bufferParser.readAndShift()
-    order.origin = this._bufferParser.readAndShiftInt()
-    order.orderRef = this._bufferParser.readAndShift()
+    order.tif = buffer.readString()
+    order.ocaGroup = buffer.readString()
+    order.account = buffer.readString()
+    order.openClose = buffer.readString()
+    order.origin = buffer.readString()
+    order.orderRef = buffer.readString()
     if (version >= 3) {
-      order.clientId = this._bufferParser.readAndShiftInt()
+      order.clientId = buffer.readInt()
     }
     if (version >= 4) {
-      order.permId = this._bufferParser.readAndShiftInt()
+      order.permId = buffer.readInt()
       if (version < 18) {
         // will never happen
         /* order.ignoreRth = */
-        this._bufferParser.readAndShiftBool()
+        buffer.readBool()
       } else {
-        order.outsideRth = this._bufferParser.readAndShiftBool()
+        order.outsideRth = buffer.readBool()
       }
-      order.hidden = this._bufferParser.readAndShiftBool()
-      order.discretionaryAmt = this._bufferParser.readAndShiftFloat()
+      order.hidden = buffer.readBool()
+      order.discretionaryAmt = buffer.readFloat()
     }
     if (version >= 5) {
-      order.goodAfterTime = this._bufferParser.readAndShift()
+      order.goodAfterTime = buffer.readString()
     }
     if (version >= 6) {
       // skip deprecated sharesAllocation field
-      this._bufferParser.readAndShift()
+      buffer.readString()
     }
     if (version >= 7) {
-      order.faGroup = this._bufferParser.readAndShift()
-      order.faMethod = this._bufferParser.readAndShift()
-      order.faPercentage = this._bufferParser.readAndShift()
-      order.faProfile = this._bufferParser.readAndShift()
+      order.faGroup = buffer.readString()
+      order.faMethod = buffer.readString()
+      order.faPercentage = buffer.readString()
+      order.faProfile = buffer.readString()
     }
     if (this._serverVersion >= MIN_SERVER_VER.MODELS_SUPPORT) {
-      order.modelCode = this._bufferParser.readAndShift()
+      order.modelCode = buffer.readString()
     }
     if (version >= 8) {
-      order.goodTillDate = this._bufferParser.readAndShift()
+      order.goodTillDate = buffer.readString()
     }
     if (version >= 9) {
-      order.rule80A = this._bufferParser.readAndShift()
-      order.percentOffset = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.settlingFirm = this._bufferParser.readAndShift()
-      order.shortSaleSlot = this._bufferParser.readAndShiftInt()
-      order.designatedLocation = this._bufferParser.readAndShift()
+      order.rule80A = buffer.readString()
+      order.percentOffset = buffer.readFloatMax()
+      order.settlingFirm = buffer.readString()
+      order.shortSaleSlot = buffer.readInt()
+      order.designatedLocation = buffer.readString()
       if (this._serverVersion === 51) {
-        this._bufferParser.readAndShiftInt() // exemptCode
+        buffer.readInt() // exemptCode
       } else if (version >= 23) {
-        order.exemptCode = this._bufferParser.readAndShiftInt()
+        order.exemptCode = buffer.readInt()
       }
-      order.auctionStrategy = this._bufferParser.readAndShiftInt()
-      order.startingPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.stockRefPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.delta = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.stockRangeLower = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.stockRangeUpper = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.displaySize = this._bufferParser.readAndShiftInt()
+      order.auctionStrategy = buffer.readInt()
+      order.startingPrice = buffer.readFloatMax()
+      order.stockRefPrice = buffer.readFloatMax()
+      order.delta = buffer.readFloatMax()
+      order.stockRangeLower = buffer.readFloatMax()
+      order.stockRangeUpper = buffer.readFloatMax()
+      order.displaySize = buffer.readInt()
       if (version < 18) {
         // will never happen
         /* order.rthOnly = */
-        this._bufferParser.readAndShiftBool()
+        buffer.readBool()
       }
-      order.blockOrder = this._bufferParser.readAndShiftBool()
-      order.sweepToFill = this._bufferParser.readAndShiftBool()
-      order.allOrNone = this._bufferParser.readAndShiftBool()
-      order.minQty = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-      order.ocaType = this._bufferParser.readAndShiftInt()
-      order.eTradeOnly = this._bufferParser.readAndShiftBool()
-      order.firmQuoteOnly = this._bufferParser.readAndShiftBool()
-      order.nbboPriceCap = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+      order.blockOrder = buffer.readBool()
+      order.sweepToFill = buffer.readBool()
+      order.allOrNone = buffer.readBool()
+      order.minQty = buffer.readIntMax()
+      order.ocaType = buffer.readInt()
+      order.eTradeOnly = buffer.readBool()
+      order.firmQuoteOnly = buffer.readBool()
+      order.nbboPriceCap = buffer.readFloatMax()
     }
     if (version >= 10) {
-      order.parentId = this._bufferParser.readAndShiftInt()
-      order.triggerMethod = this._bufferParser.readAndShiftInt()
+      order.parentId = buffer.readInt()
+      order.triggerMethod = buffer.readInt()
     }
     let receivedInt
     if (version >= 11) {
-      order.volatility = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.volatilityType = this._bufferParser.readAndShiftInt()
+      order.volatility = buffer.readFloatMax()
+      order.volatilityType = buffer.readInt()
       if (version === 11) {
-        receivedInt = this._bufferParser.readAndShiftInt()
+        receivedInt = buffer.readInt()
         order.deltaNeutralOrderType = receivedInt === 0 ? 'NONE' : 'MKT'
       } else {
         // version 12 and up
-        order.deltaNeutralOrderType = this._bufferParser.readAndShift()
-        order.deltaNeutralAuxPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+        order.deltaNeutralOrderType = buffer.readString()
+        order.deltaNeutralAuxPrice = buffer.readFloatMax()
         if (version >= 27 && !isEmpty(order.deltaNeutralOrderType)) {
-          order.deltaNeutralConId = this._bufferParser.readAndShiftInt()
-          order.deltaNeutralSettlingFirm = this._bufferParser.readAndShift()
-          order.deltaNeutralClearingAccount = this._bufferParser.readAndShift()
-          order.deltaNeutralClearingIntent = this._bufferParser.readAndShift()
+          order.deltaNeutralConId = buffer.readInt()
+          order.deltaNeutralSettlingFirm = buffer.readString()
+          order.deltaNeutralClearingAccount = buffer.readString()
+          order.deltaNeutralClearingIntent = buffer.readString()
         }
         if (version >= 31 && !isEmpty(order.deltaNeutralOrderType)) {
-          order.deltaNeutralOpenClose = this._bufferParser.readAndShift()
-          order.deltaNeutralShortSale = this._bufferParser.readAndShiftBool()
-          order.deltaNeutralShortSaleSlot = this._bufferParser.readAndShiftInt()
-          order.deltaNeutralDesignatedLocation = this._bufferParser.readAndShift()
+          order.deltaNeutralOpenClose = buffer.readString()
+          order.deltaNeutralShortSale = buffer.readBool()
+          order.deltaNeutralShortSaleSlot = buffer.readInt()
+          order.deltaNeutralDesignatedLocation = buffer.readString()
         }
       }
-      order.continuousUpdate = this._bufferParser.readAndShiftInt()
+      order.continuousUpdate = buffer.readInt()
       if (this._serverVersion === 26) {
-        order.stockRangeLower = this._bufferParser.readAndShiftFloat()
-        order.stockRangeUpper = this._bufferParser.readAndShiftFloat()
+        order.stockRangeLower = buffer.readFloat()
+        order.stockRangeUpper = buffer.readFloat()
       }
-      order.referencePriceType = this._bufferParser.readAndShiftInt()
+      order.referencePriceType = buffer.readInt()
     }
     if (version >= 13) {
-      order.trailStopPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+      order.trailStopPrice = buffer.readFloatMax()
     }
     if (version >= 30) {
-      order.trailingPercent = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+      order.trailingPercent = buffer.readFloatMax()
     }
     if (version >= 14) {
-      order.basisPoints = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.basisPointsType = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-      contract.comboLegsDescrip = this._bufferParser.readAndShift()
+      order.basisPoints = buffer.readFloatMax()
+      order.basisPointsType = buffer.readIntMax()
+      contract.comboLegsDescrip = buffer.readString()
     }
     let comboLeg
     let comboLegsCount
     let orderComboLeg
     let orderComboLegsCount
     if (version >= 29) {
-      comboLegsCount = this._bufferParser.readAndShiftInt()
+      comboLegsCount = buffer.readInt()
       if (comboLegsCount > 0) {
         contract.comboLegs = []
         for (let i = 0; i < comboLegsCount; ++i) {
           comboLeg = {}
-          comboLeg.conId = this._bufferParser.readAndShiftInt()
-          comboLeg.ratio = this._bufferParser.readAndShiftInt()
-          comboLeg.action = this._bufferParser.readAndShift()
-          comboLeg.exchange = this._bufferParser.readAndShift()
-          comboLeg.openClose = this._bufferParser.readAndShiftInt()
-          comboLeg.shortSaleSlot = this._bufferParser.readAndShiftInt()
-          comboLeg.designatedLocation = this._bufferParser.readAndShift()
-          comboLeg.exemptCode = this._bufferParser.readAndShiftInt()
+          comboLeg.conId = buffer.readInt()
+          comboLeg.ratio = buffer.readInt()
+          comboLeg.action = buffer.readString()
+          comboLeg.exchange = buffer.readString()
+          comboLeg.openClose = buffer.readInt()
+          comboLeg.shortSaleSlot = buffer.readInt()
+          comboLeg.designatedLocation = buffer.readString()
+          comboLeg.exemptCode = buffer.readInt()
           contract.comboLegs.push(comboLeg)
         }
       }
-      orderComboLegsCount = this._bufferParser.readAndShiftInt()
+      orderComboLegsCount = buffer.readInt()
       if (orderComboLegsCount > 0) {
         order.orderComboLegs = []
         for (let i = 0; i < orderComboLegsCount; ++i) {
           orderComboLeg = {}
-          order.price = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+          order.price = buffer.readFloatMax()
           order.orderComboLegs.push(orderComboLeg)
         }
       }
@@ -1084,77 +1107,77 @@ class MessageDecoder {
     let smartComboRoutingParamsCount
     let tagValue
     if (version >= 26) {
-      smartComboRoutingParamsCount = this._bufferParser.readAndShiftInt()
+      smartComboRoutingParamsCount = buffer.readInt()
       if (smartComboRoutingParamsCount > 0) {
         order.smartComboRoutingParams = []
         for (let i = 0; i < smartComboRoutingParamsCount; ++i) {
           tagValue = {}
-          tagValue.tag = this._bufferParser.readAndShift()
-          tagValue.value = this._bufferParser.readAndShift()
+          tagValue.tag = buffer.readString()
+          tagValue.value = buffer.readString()
           order.smartComboRoutingParams.push(tagValue)
         }
       }
     }
     if (version >= 15) {
       if (version >= 20) {
-        order.scaleInitLevelSize = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-        order.scaleSubsLevelSize = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
+        order.scaleInitLevelSize = buffer.readIntMax()
+        order.scaleSubsLevelSize = buffer.readIntMax()
       } else {
-        let notSuppScaleNumComponents = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-        order.scaleInitLevelSize = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
+        let notSuppScaleNumComponents = buffer.readIntMax()
+        order.scaleInitLevelSize = buffer.readIntMax()
       }
-      order.scalePriceIncrement = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+      order.scalePriceIncrement = buffer.readFloatMax()
     }
     if (
       version >= 28 &&
       order.scalePriceIncrement > 0.0 &&
       order.scalePriceIncrement !== Number.MAX_VALUE
     ) {
-      order.scalePriceAdjustValue = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.scalePriceAdjustInterval = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-      order.scaleProfitOffset = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.scaleAutoReset = this._bufferParser.readAndShiftBool()
-      order.scaleInitPosition = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-      order.scaleInitFillQty = this._bufferParser.readAndShiftInt() || Number.MAX_VALUE
-      order.scaleRandomPercent = this._bufferParser.readAndShiftBool()
+      order.scalePriceAdjustValue = buffer.readFloatMax()
+      order.scalePriceAdjustInterval = buffer.readIntMax()
+      order.scaleProfitOffset = buffer.readFloatMax()
+      order.scaleAutoReset = buffer.readBool()
+      order.scaleInitPosition = buffer.readIntMax()
+      order.scaleInitFillQty = buffer.readIntMax()
+      order.scaleRandomPercent = buffer.readBool()
     }
     if (version >= 24) {
-      order.hedgeType = this._bufferParser.readAndShift()
+      order.hedgeType = buffer.readString()
       if (!isEmpty(order.hedgeType)) {
-        order.hedgeParam = this._bufferParser.readAndShift()
+        order.hedgeParam = buffer.readString()
       }
     }
     if (version >= 25) {
-      order.optOutSmartRouting = this._bufferParser.readAndShiftBool()
+      order.optOutSmartRouting = buffer.readBool()
     }
     if (version >= 19) {
-      order.clearingAccount = this._bufferParser.readAndShift()
-      order.clearingIntent = this._bufferParser.readAndShift()
+      order.clearingAccount = buffer.readString()
+      order.clearingIntent = buffer.readString()
     }
     if (version >= 22) {
-      order.notHeld = this._bufferParser.readAndShiftBool()
+      order.notHeld = buffer.readBool()
     }
     let underComp
     if (version >= 20) {
-      if (this._bufferParser.readAndShiftBool()) {
+      if (buffer.readBool()) {
         deltaNeutralContract = {}
-        deltaNeutralContract.conId = this._bufferParser.readAndShiftInt()
-        deltaNeutralContract.delta = this._bufferParser.readAndShiftFloat()
-        deltaNeutralContract.price = this._bufferParser.readAndShiftFloat()
+        deltaNeutralContract.conId = buffer.readInt()
+        deltaNeutralContract.delta = buffer.readFloat()
+        deltaNeutralContract.price = buffer.readFloat()
         contract.deltaNeutralContract = deltaNeutralContract
       }
     }
     let algoParamsCount
     if (version >= 21) {
-      order.algoStrategy = this._bufferParser.readAndShift()
+      order.algoStrategy = buffer.readString()
       if (!isEmpty(order.algoStrategy)) {
-        algoParamsCount = this._bufferParser.readAndShiftInt()
+        algoParamsCount = buffer.readInt()
         if (algoParamsCount > 0) {
           order.algoParams = []
           for (let i = 0; i < algoParamsCount; ++i) {
             tagValue = {}
-            tagValue.tag = this._bufferParser.readAndShift()
-            tagValue.value = this._bufferParser.readAndShift()
+            tagValue.tag = buffer.readString()
+            tagValue.value = buffer.readString()
             order.algoParams.push(tagValue)
           }
         }
@@ -1162,105 +1185,106 @@ class MessageDecoder {
     }
 
     if (version >= 33) {
-      order.solicited(this._bufferParser.readAndShiftBool())
+      order.solicited = buffer.readBool()
     }
 
     let orderState = {}
     if (version >= 16) {
-      order.whatIf = this._bufferParser.readAndShiftBool()
-      orderState.status = this._bufferParser.readAndShift()
+      order.whatIf = buffer.readBool()
+      orderState.status = buffer.readString()
       if (this._serverVersion >= MIN_SERVER_VER.WHAT_IF_EXT_FIELDS) {
-        orderState.initMarginBefore = this._bufferParser.readAndShift()
-        orderState.maintMarginBefore = this._bufferParser.readAndShift()
-        orderState.equityWithLoanBefore = this._bufferParser.readAndShift()
-        orderState.initMarginChange = this._bufferParser.readAndShift()
-        orderState.maintMarginChange = this._bufferParser.readAndShift()
-        orderState.equityWithLoanChange = this._bufferParser.readAndShift()
+        orderState.initMarginBefore = buffer.readString()
+        orderState.maintMarginBefore = buffer.readString()
+        orderState.equityWithLoanBefore = buffer.readString()
+        orderState.initMarginChange = buffer.readString()
+        orderState.maintMarginChange = buffer.readString()
+        orderState.equityWithLoanChange = buffer.readString()
       }
-      orderState.initMargin = this._bufferParser.readAndShift()
-      orderState.maintMargin = this._bufferParser.readAndShift()
-      orderState.equityWithLoan = this._bufferParser.readAndShift()
-      orderState.commission = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      orderState.minCommission = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      orderState.maxCommission = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      orderState.commissionCurrency = this._bufferParser.readAndShift()
-      orderState.warningText = this._bufferParser.readAndShift()
+      orderState.initMargin = buffer.readString()
+      orderState.maintMargin = buffer.readString()
+      orderState.equityWithLoan = buffer.readString()
+      orderState.commission = buffer.readFloatMax()
+      orderState.minCommission = buffer.readFloatMax()
+      orderState.maxCommission = buffer.readFloatMax()
+      orderState.commissionCurrency = buffer.readString()
+      orderState.warningText = buffer.readString()
     }
 
     if (version >= 34) {
-      order.randomizeSize = this._bufferParser.readAndShiftBool()
-      order.randomizePrice = this._bufferParser.readAndShiftBool()
+      order.randomizeSize = buffer.readBool()
+      order.randomizePrice = buffer.readBool()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.PEGGED_TO_BENCHMARK) {
       if (order.orderType === ORDER_TYPE.PEG_BENCH) {
-        order.referenceContractId = this._bufferParser.readAndShiftInt()
-        order.isPeggedChangeAmountDecrease = this._bufferParser.readAndShiftBool()
-        order.peggedChangeAmount = this._bufferParser.readAndShiftFloat()
-        order.referenceChangeAmount = this._bufferParser.readAndShiftFloat()
-        order.referenceExchangeId = this._bufferParser.readAndShift()
+        order.referenceContractId = buffer.readInt()
+        order.isPeggedChangeAmountDecrease = buffer.readBool()
+        order.peggedChangeAmount = buffer.readFloat()
+        order.referenceChangeAmount = buffer.readFloat()
+        order.referenceExchangeId = buffer.readString()
       }
 
-      let nConditions = this._bufferParser.readAndShiftInt()
+      let nConditions = buffer.readInt()
 
       if (nConditions > 0) {
+        order.conditions = []
         for (let i = 0; i < nConditions; i++) {
-          order.conditions.push(this._bufferParser.readAndShiftInt())
+          order.conditions.push(buffer.readInt())
         }
 
-        order.conditionsIgnoreRth = this._bufferParser.readAndShiftBool()
-        order.conditionsCancelOrder = this._bufferParser.readAndShiftBool()
+        order.conditionsIgnoreRth = buffer.readBool()
+        order.conditionsCancelOrder = buffer.readBool()
       }
 
-      order.adjustedOrderType(ORDER_TYPE[this._bufferParser.readAndShift()])
-      order.triggerPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.trailStopPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.lmtPriceOffset = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.adjustedStopPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.adjustedStopLimitPrice = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.adjustedTrailingAmount = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
-      order.adjustableTrailingUnit = this._bufferParser.readAndShiftInt()
+      order.adjustedOrderType=ORDER_TYPE[buffer.readString()]
+      order.triggerPrice = buffer.readFloatMax()
+      order.trailStopPrice = buffer.readFloatMax()
+      order.lmtPriceOffset = buffer.readFloatMax()
+      order.adjustedStopPrice = buffer.readFloatMax()
+      order.adjustedStopLimitPrice = buffer.readFloatMax()
+      order.adjustedTrailingAmount = buffer.readFloatMax()
+      order.adjustableTrailingUnit = buffer.readInt()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.SOFT_DOLLAR_TIER) {
-      order.softDollarTier = ({
-        name: this._bufferParser.readAndShift(), value: this._bufferParser.readAndShift(), displayName: this._bufferParser.readAndShift()
-      })
+      order.softDollarTier = {
+        name: buffer.readString(),
+        value: buffer.readString(),
+        displayName: buffer.readString()
+      }
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.CASH_QTY) {
-      order.cashQty = this._bufferParser.readAndShiftFloat() || Number.MAX_VALUE
+      order.cashQty = buffer.readFloatMax()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.AUTO_PRICE_FOR_HEDGE) {
-      order.dontUseAutoPriceForHedge = this._bufferParser.readAndShiftBool()
+      order.dontUseAutoPriceForHedge = buffer.readBool()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.ORDER_CONTAINER) {
-      order.isOmsContainer = this._bufferParser.readAndShiftBool()
+      order.isOmsContainer = buffer.readBool()
     }
 
     if (this._serverVersion >= MIN_SERVER_VER.D_PEG_ORDERS) {
-      order.discretionaryUpToLimitPrice = this._bufferParser.readAndShiftBool()
+      order.discretionaryUpToLimitPrice = buffer.readBool()
     }
-
-
 
     this._emit('openOrder', order.orderId, contract, order, orderState)
   }
 
-  _ERR_MSG() {
+  _ERR_MSG(buffer) {
     let errorCode
     let errorMsg
     let id
-    let version = this._bufferParser.readAndShiftInt()
+    let version = buffer.readInt()
     if (version < 2) {
-      errorMsg = this._bufferParser.readAndShift()
+      errorMsg = buffer.readString()
       this._emit('error', errorMsg)
     } else {
-      id = this._bufferParser.readAndShiftInt()
-      errorCode = this._bufferParser.readAndShiftInt()
-      errorMsg = this._bufferParser.readAndShift()
+      id = buffer.readInt()
+      errorCode = buffer.readInt()
+      errorMsg = buffer.readString()
       this._emit('error', {
         id: id,
         code: errorCode,
@@ -1269,52 +1293,54 @@ class MessageDecoder {
     }
   }
 
-  _ACCT_UPDATE_TIME() {
-    let version = this._bufferParser.readAndShiftInt()
-    let timeStamp = this._bufferParser.readAndShift()
+  _ACCT_UPDATE_TIME(buffer) {
+    let version = buffer.readInt()
+    let timeStamp = buffer.readString()
     this._emit('updateAccountTime', timeStamp)
   }
 
-
-  _PORTFOLIO_VALUE() {
-    let version = this._bufferParser.readAndShiftInt()
+  _PORTFOLIO_VALUE(buffer) {
+    let version = buffer.readInt()
     let contract = {}
     if (version >= 6) {
-      contract.conId = this._bufferParser.readAndShiftInt()
+      contract.conId = buffer.readInt()
     }
-    contract.symbol = this._bufferParser.readAndShift()
-    contract.secType = this._bufferParser.readAndShift()
-    contract.expiry = this._bufferParser.readAndShift()
-    contract.strike = this._bufferParser.readAndShiftFloat()
-    contract.right = this._bufferParser.readAndShift()
+    contract.symbol = buffer.readString()
+    contract.secType = buffer.readString()
+    contract.expiry = buffer.readString()
+    contract.strike = buffer.readFloat()
+    contract.right = buffer.readString()
     if (version >= 7) {
-      contract.multiplier = this._bufferParser.readAndShift()
-      contract.primaryExch = this._bufferParser.readAndShift()
+      contract.multiplier = buffer.readString()
+      contract.primaryExch = buffer.readString()
     }
-    contract.currency = this._bufferParser.readAndShift()
+    contract.currency = buffer.readString()
     if (version >= 2) {
-      contract.localSymbol = this._bufferParser.readAndShift()
+      contract.localSymbol = buffer.readString()
     }
     if (version >= 8) {
-      contract.tradingClass = this._bufferParser.readAndShift()
+      contract.tradingClass = buffer.readString()
     }
-    let position = this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS ? this._bufferParser.readAndShiftFloat() : this._bufferParser.readAndShiftInt()
-    let marketPrice = this._bufferParser.readAndShiftFloat()
-    let marketValue = this._bufferParser.readAndShiftFloat()
+    let position =
+      this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS
+        ? buffer.readFloat()
+        : buffer.readInt()
+    let marketPrice = buffer.readFloat()
+    let marketValue = buffer.readFloat()
     let averageCost = 0.0
     let unrealizedPNL = 0.0
     let realizedPNL = 0.0
     if (version >= 3) {
-      averageCost = this._bufferParser.readAndShiftFloat()
-      unrealizedPNL = this._bufferParser.readAndShiftFloat()
-      realizedPNL = this._bufferParser.readAndShiftFloat()
+      averageCost = buffer.readFloat()
+      unrealizedPNL = buffer.readFloat()
+      realizedPNL = buffer.readFloat()
     }
     let accountName = null
     if (version >= 4) {
-      accountName = this._bufferParser.readAndShift()
+      accountName = buffer.readString()
     }
     if (version === 6 && this._serverVersion === 39) {
-      contract.primaryExch = this._bufferParser.readAndShift()
+      contract.primaryExch = buffer.readString()
     }
     this._emit(
       'updatePortfolio',
@@ -1329,47 +1355,55 @@ class MessageDecoder {
     )
   }
 
-  _ACCT_VALUE() {
-    let version = this._bufferParser.readAndShiftInt()
-    let key = this._bufferParser.readAndShift()
-    let value = this._bufferParser.readAndShift()
-    let currency = this._bufferParser.readAndShift()
+  _ACCT_VALUE(buffer) {
+    let version = buffer.readInt()
+    let key = buffer.readString()
+    let value = buffer.readString()
+    let currency = buffer.readString()
     let accountName = null
     if (version >= 2) {
-      accountName = this._bufferParser.readAndShift()
+      accountName = buffer.readString()
     }
     this._emit('updateAccountValue', key, value, currency, accountName)
   }
 
-  _ORDER_STATUS() {
-    let version = this._serverVersion >= MIN_SERVER_VER.MARKET_CAP_PRICE ? Number.MAX_VALUE : this._bufferParser.readAndShiftInt()
-    let id = this._bufferParser.readAndShiftInt()
-    let status = this._bufferParser.readAndShift()
-    let filled = this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS ? this._bufferParser.readAndShiftFloat() : this._bufferParser.readAndShiftInt()
-    let remaining = this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS ? this._bufferParser.readAndShiftFloat() : this._bufferParser.readAndShiftInt()
-    let avgFillPrice = this._bufferParser.readAndShiftFloat()
+  _ORDER_STATUS(buffer) {
+    let version =
+      this._serverVersion >= MIN_SERVER_VER.MARKET_CAP_PRICE ? Number.MAX_VALUE : buffer.readInt()
+    let id = buffer.readInt()
+    let status = buffer.readString()
+    let filled =
+      this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS
+        ? buffer.readFloat()
+        : buffer.readInt()
+    let remaining =
+      this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS
+        ? buffer.readFloat()
+        : buffer.readInt()
+    let avgFillPrice = buffer.readFloat()
     let permId = 0
     if (version >= 2) {
-      permId = this._bufferParser.readAndShiftInt()
+      permId = buffer.readInt()
     }
     let parentId = 0
     if (version >= 3) {
-      parentId = this._bufferParser.readAndShiftInt()
+      parentId = buffer.readInt()
     }
     let lastFillPrice = 0
     if (version >= 4) {
-      lastFillPrice = this._bufferParser.readAndShiftFloat()
+      lastFillPrice = buffer.readFloat()
     }
     let clientId = 0
     if (version >= 5) {
-      clientId = this._bufferParser.readAndShiftInt()
+      clientId = buffer.readInt()
     }
     let whyHeld = null
     if (version >= 6) {
-      whyHeld = this._bufferParser.readAndShift()
+      whyHeld = buffer.readString()
     }
 
-    let mktCapPrice = this._serverVersion >= MIN_SERVER_VER.MARKET_CAP_PRICE ? this._bufferParser.readAndShiftFloat() : Number.MAX_VALUE
+    let mktCapPrice =
+      this._serverVersion >= MIN_SERVER_VER.MARKET_CAP_PRICE ? buffer.readFloat() : Number.MAX_VALUE
     this._emit(
       'orderStatus',
       id,
@@ -1386,17 +1420,17 @@ class MessageDecoder {
     )
   }
 
-  _TICK_EFP() {
-    let version = this._bufferParser.readAndShiftInt()
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let tickType = this._bufferParser.readAndShiftInt()
-    let basisPoints = this._bufferParser.readAndShiftFloat()
-    let formattedBasisPoints = this._bufferParser.readAndShift()
-    let impliedFuturesPrice = this._bufferParser.readAndShiftFloat()
-    let holdDays = this._bufferParser.readAndShiftInt()
-    let futureExpiry = this._bufferParser.readAndShift()
-    let dividendImpact = this._bufferParser.readAndShiftFloat()
-    let dividendsToExpiry = this._bufferParser.readAndShiftFloat()
+  _TICK_EFP(buffer) {
+    let version = buffer.readInt()
+    let tickerId = buffer.readInt()
+    let tickType = buffer.readInt()
+    let basisPoints = buffer.readFloat()
+    let formattedBasisPoints = buffer.readString()
+    let impliedFuturesPrice = buffer.readFloat()
+    let holdDays = buffer.readInt()
+    let futureExpiry = buffer.readString()
+    let dividendImpact = buffer.readFloat()
+    let dividendsToExpiry = buffer.readFloat()
     this._emit(
       'tickEFP',
       tickerId,
@@ -1411,32 +1445,32 @@ class MessageDecoder {
     )
   }
 
-  _TICK_STRING() {
-    let version = this._bufferParser.readAndShiftInt()
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let tickType = this._bufferParser.readAndShiftInt()
-    let value = this._bufferParser.readAndShift()
+  _TICK_STRING(buffer) {
+    let version = buffer.readInt()
+    let tickerId = buffer.readInt()
+    let tickType = buffer.readInt()
+    let value = buffer.readString()
     this._emit('tickString', tickerId, tickType, value)
   }
 
-  _TICK_GENERIC() {
-    let version = this._bufferParser.readAndShiftInt()
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let tickType = this._bufferParser.readAndShiftInt()
-    let value = this._bufferParser.readAndShiftFloat()
+  _TICK_GENERIC(buffer) {
+    let version = buffer.readInt()
+    let tickerId = buffer.readInt()
+    let tickType = buffer.readInt()
+    let value = buffer.readFloat()
     this._emit('tickGeneric', tickerId, tickType, value)
   }
 
-  _TICK_OPTION_COMPUTATION() {
-    let version = this._bufferParser.readAndShiftInt()
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let tickType = this._bufferParser.readAndShiftInt()
-    let impliedVol = this._bufferParser.readAndShiftFloat()
+  _TICK_OPTION_COMPUTATION(buffer) {
+    let version = buffer.readInt()
+    let tickerId = buffer.readInt()
+    let tickType = buffer.readInt()
+    let impliedVol = buffer.readFloat()
     if (impliedVol < 0) {
       // -1 is the "not yet computed" indicator
       impliedVol = Number.MAX_VALUE
     }
-    let delta = this._bufferParser.readAndShiftFloat()
+    let delta = buffer.readFloat()
     if (Math.abs(delta) > 1) {
       // -2 is the "not yet computed" indicator
       delta = Number.MAX_VALUE
@@ -1449,34 +1483,34 @@ class MessageDecoder {
     let undPrice = Number.MAX_VALUE
     if (version >= 6 || tickType === TICK_TYPE.MODEL_OPTION) {
       // introduced in version == 5
-      optPrice = this._bufferParser.readAndShiftFloat()
+      optPrice = buffer.readFloat()
       if (optPrice < 0) {
         // -1 is the "not yet computed" indicator
         optPrice = Number.MAX_VALUE
       }
-      pvDividend = this._bufferParser.readAndShiftFloat()
+      pvDividend = buffer.readFloat()
       if (pvDividend < 0) {
         // -1 is the "not yet computed" indicator
         pvDividend = Number.MAX_VALUE
       }
     }
     if (version >= 6) {
-      gamma = this._bufferParser.readAndShiftFloat()
+      gamma = buffer.readFloat()
       if (Math.abs(gamma) > 1) {
         // -2 is the "not yet computed" indicator
         gamma = Number.MAX_VALUE
       }
-      vega = this._bufferParser.readAndShiftFloat()
+      vega = buffer.readFloat()
       if (Math.abs(vega) > 1) {
         // -2 is the "not yet computed" indicator
         vega = Number.MAX_VALUE
       }
-      theta = this._bufferParser.readAndShiftFloat()
+      theta = buffer.readFloat()
       if (Math.abs(theta) > 1) {
         // -2 is the "not yet computed" indicator
         theta = Number.MAX_VALUE
       }
-      undPrice = this._bufferParser.readAndShiftFloat()
+      undPrice = buffer.readFloat()
       if (undPrice < 0) {
         // -1 is the "not yet computed" indicator
         undPrice = Number.MAX_VALUE
@@ -1497,74 +1531,77 @@ class MessageDecoder {
     )
   }
 
-  _ACCOUNT_SUMMARY_END() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
+  _ACCOUNT_SUMMARY_END(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
     this._emit('accountSummaryEnd', reqId)
   }
 
-  _ACCOUNT_SUMMARY() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let account = this._bufferParser.readAndShift()
-    let tag = this._bufferParser.readAndShift()
-    let value = this._bufferParser.readAndShift()
-    let currency = this._bufferParser.readAndShift()
+  _ACCOUNT_SUMMARY(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let account = buffer.readString()
+    let tag = buffer.readString()
+    let value = buffer.readString()
+    let currency = buffer.readString()
     this._emit('accountSummary', reqId, account, tag, value, currency)
   }
 
-  _POSITION_END() {
-    let version = this._bufferParser.readAndShiftInt()
+  _POSITION_END(buffer) {
+    let version = buffer.readInt()
     this._emit('positionEnd')
   }
 
-  _POSITION() {
-    let version = this._bufferParser.readAndShiftInt()
-    let account = this._bufferParser.readAndShift()
+  _POSITION(buffer) {
+    let version = buffer.readInt()
+    let account = buffer.readString()
     let contract = {}
-    contract.conId = this._bufferParser.readAndShiftInt()
-    contract.symbol = this._bufferParser.readAndShift()
-    contract.secType = this._bufferParser.readAndShift()
-    contract.expiry = this._bufferParser.readAndShift()
-    contract.strike = this._bufferParser.readAndShiftFloat()
-    contract.right = this._bufferParser.readAndShift()
-    contract.multiplier = this._bufferParser.readAndShift()
-    contract.exchange = this._bufferParser.readAndShift()
-    contract.currency = this._bufferParser.readAndShift()
-    contract.localSymbol = this._bufferParser.readAndShift()
+    contract.conId = buffer.readInt()
+    contract.symbol = buffer.readString()
+    contract.secType = buffer.readString()
+    contract.expiry = buffer.readString()
+    contract.strike = buffer.readFloat()
+    contract.right = buffer.readString()
+    contract.multiplier = buffer.readString()
+    contract.exchange = buffer.readString()
+    contract.currency = buffer.readString()
+    contract.localSymbol = buffer.readString()
     if (version >= 2) {
-      contract.tradingClass = this._bufferParser.readAndShift()
+      contract.tradingClass = buffer.readString()
     }
-    let pos = this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS ? this._bufferParser.readAndShiftFloat() : this._bufferParser.readAndShiftInt()
+    let pos =
+      this._serverVersion >= MIN_SERVER_VER.FRACTIONAL_POSITIONS
+        ? buffer.readFloat()
+        : buffer.readInt()
     let avgCost = 0
     if (version >= 3) {
-      avgCost = this._bufferParser.readAndShiftFloat()
+      avgCost = buffer.readFloat()
     }
     this._emit('position', account, contract, pos, avgCost)
   }
 
-  _TICK_SIZE() {
-    let version = this._bufferParser.readAndShiftInt()
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let tickType = this._bufferParser.readAndShiftInt()
-    let size = this._bufferParser.readAndShiftInt()
+  _TICK_SIZE(buffer) {
+    let version = buffer.readInt()
+    let tickerId = buffer.readInt()
+    let tickType = buffer.readInt()
+    let size = buffer.readInt()
     this._emit('tickSize', tickerId, tickType, size)
   }
 
-  _TICK_PRICE() {
-    let version = this._bufferParser.readAndShiftInt()
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let tickType = this._bufferParser.readAndShiftInt()
-    let price = this._bufferParser.readAndShiftFloat()
+  _TICK_PRICE(buffer) {
+    let version = buffer.readInt()
+    let tickerId = buffer.readInt()
+    let tickType = buffer.readInt()
+    let price = buffer.readFloat()
     let size = 0
     let attribs = {}
 
     if (version >= 2) {
-      size = this._bufferParser.readAndShiftInt()
+      size = buffer.readInt()
     }
 
     if (version >= 3) {
-      let mask = this._bufferParser.readAndShiftInt()
+      let mask = buffer.readInt()
 
       attribs.canAutoExecute = (mask & (1 << 0)) !== 0
 
@@ -1591,14 +1628,14 @@ class MessageDecoder {
           sizeTickType = 5 // LAST_SIZE
           break
         case 66: // DELAYED_BID
-          sizeTickType = 69; // DELAYED_BID_SIZE
-          break;
+          sizeTickType = 69 // DELAYED_BID_SIZE
+          break
         case 67: // DELAYED_ASK
-          sizeTickType = 70; // DELAYED_ASK_SIZE
-          break;
+          sizeTickType = 70 // DELAYED_ASK_SIZE
+          break
         case 68: // DELAYED_LAST
-          sizeTickType = 71; // DELAYED_LAST_SIZE
-          break;
+          sizeTickType = 71 // DELAYED_LAST_SIZE
+          break
         default:
           break
       }
@@ -1608,62 +1645,61 @@ class MessageDecoder {
     }
   }
 
-  _POSITION_MULTI() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let account = this._bufferParser.readAndShift()
+  _POSITION_MULTI(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let account = buffer.readString()
 
     let contract = {}
-    contract.conId = this._bufferParser.readAndShiftInt()
-    contract.symbol = this._bufferParser.readAndShift()
-    contract.secType = this._bufferParser.readAndShift()
-    contract.expiry = this._bufferParser.readAndShift()
-    contract.strike = this._bufferParser.readAndShiftFloat()
-    contract.right = this._bufferParser.readAndShift()
-    contract.multiplier = this._bufferParser.readAndShift()
-    contract.exchange = this._bufferParser.readAndShift()
-    contract.currency = this._bufferParser.readAndShift()
-    contract.localSymbol = this._bufferParser.readAndShift()
-    contract.tradingClass = this._bufferParser.readAndShift()
-    let pos = this._bufferParser.readAndShiftFloat()
-    let avgCost = this._bufferParser.readAndShiftFloat()
-    let modelCode = this._bufferParser.readAndShift()
+    contract.conId = buffer.readInt()
+    contract.symbol = buffer.readString()
+    contract.secType = buffer.readString()
+    contract.expiry = buffer.readString()
+    contract.strike = buffer.readFloat()
+    contract.right = buffer.readString()
+    contract.multiplier = buffer.readString()
+    contract.exchange = buffer.readString()
+    contract.currency = buffer.readString()
+    contract.localSymbol = buffer.readString()
+    contract.tradingClass = buffer.readString()
+    let pos = buffer.readFloat()
+    let avgCost = buffer.readFloat()
+    let modelCode = buffer.readString()
     this._emit('positionMulti', reqId, account, modelCode, contract, pos, avgCost)
   }
 
-
-  _POSITION_MULTI_END() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
+  _POSITION_MULTI_END(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
     this._emit('positionMultiEnd', reqId)
   }
 
-  _ACCOUNT_UPDATE_MULTI() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShiftInt()
-    let account = this._bufferParser.readAndShift()
-    let modelCode = this._bufferParser.readAndShift()
-    let key = this._bufferParser.readAndShift()
-    let value = this._bufferParser.readAndShift()
-    let currency = this._bufferParser.readAndShift()
+  _ACCOUNT_UPDATE_MULTI(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
+    let account = buffer.readString()
+    let modelCode = buffer.readString()
+    let key = buffer.readString()
+    let value = buffer.readString()
+    let currency = buffer.readString()
     this._emit('accountUpdateMulti', reqId, account, modelCode, key, value, currency)
   }
 
-  _ACCOUNT_UPDATE_MULTI_END() {
-    let version = this._bufferParser.readAndShiftInt()
-    let reqId = this._bufferParser.readAndShift()
+  _ACCOUNT_UPDATE_MULTI_END(buffer) {
+    let version = buffer.readInt()
+    let reqId = buffer.readInt()
     this._emit('accountUpdateMultiEnd', reqId)
   }
 
-  _SMART_COMPONENTS() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let n = this._bufferParser.readAndShiftInt()
+  _SMART_COMPONENTS(buffer) {
+    let reqId = buffer.readInt()
+    let n = buffer.readInt()
     let theMap = []
 
     for (let i = 0; i < n; i++) {
-      let bitNumber = this._bufferParser.readAndShiftInt()
-      let exchange = this._bufferParser.readAndShift()
-      let exchangeLetter = this._bufferParser.readAndShift()
+      let bitNumber = buffer.readInt()
+      let exchange = buffer.readString()
+      let exchangeLetter = buffer.readString()
 
       theMap.push({ bitNumber, exhange: { exchange, exchangeLetter } })
     }
@@ -1671,31 +1707,31 @@ class MessageDecoder {
     this._emit('smartComponents', reqId, theMap)
   }
 
-  _TICK_REQ_PARAMS() {
-    let tickerId = this._bufferParser.readAndShiftInt()
-    let minTick = this._bufferParser.readAndShiftFloat()
-    let bboExchange = this._bufferParser.readAndShift()
-    let snapshotPermissions = this._bufferParser.readAndShiftInt()
+  _TICK_REQ_PARAMS(buffer) {
+    let tickerId = buffer.readInt()
+    let minTick = buffer.readFloat()
+    let bboExchange = buffer.readString()
+    let snapshotPermissions = buffer.readInt()
     this._emit('tickReqParams', tickerId, minTick, bboExchange, snapshotPermissions)
   }
 
-  _TICK_BY_TICK() {
-    let reqId = this._bufferParser.readAndShiftInt()
-    let tickType = this._bufferParser.readAndShiftInt()
-    let time = this._bufferParser.readAndShift()
+  _TICK_BY_TICK(buffer) {
+    let reqId = buffer.readInt()
+    let tickType = buffer.readInt()
+    let time = buffer.readString()
     let mask
     switch (tickType) {
       case 0: // None
         break
       case 1: // Last
       case 2: // Alllast
-        let price = this._bufferParser.readAndShiftFloat()
-        let size = this._bufferParser.readAndShiftInt()
-        mask = this._bufferParser.readAndShiftInt()
+        let price = buffer.readFloat()
+        let size = buffer.readInt()
+        mask = buffer.readInt()
         let pastLimit = (mask & (1 << 0)) !== 0
         let unreported = (mask & (1 << 1)) !== 0
-        let exchange = this._bufferParser.readAndShift()
-        let specialConditions = this._bufferParser.readAndShift()
+        let exchange = buffer.readString()
+        let specialConditions = buffer.readString()
         this._emit(
           'tickByTickAllLast',
           reqId,
@@ -1709,11 +1745,11 @@ class MessageDecoder {
         )
         break
       case 3: // BidAsk
-        let bidPrice = this._bufferParser.readAndShiftFloat()
-        let askPrice = this._bufferParser.readAndShiftFloat()
-        let bidSize = this._bufferParser.readAndShiftInt()
-        let askSize = this._bufferParser.readAndShiftInt()
-        mask = this._bufferParser.readAndShiftInt()
+        let bidPrice = buffer.readFloat()
+        let askPrice = buffer.readFloat()
+        let bidSize = buffer.readInt()
+        let askSize = buffer.readInt()
+        mask = buffer.readInt()
         let bidPastLow = (mask & (1 << 0)) !== 0
         let askPastHigh = (mask & (1 << 1)) !== 0
         this._emit('tickByTickBidAsk', reqId, time, bidPrice, askPrice, bidSize, askSize, {
@@ -1722,16 +1758,16 @@ class MessageDecoder {
         })
         break
       case 4: // MidPoint
-        let midPoint = this._bufferParser.readAndShiftFloat()
+        let midPoint = buffer.readFloat()
         this._emit('tickByTickMidPoint', reqId, time, midPoint)
         break
     }
   }
 
-  _ORDER_BOUND() {
-    let orderId = this._bufferParser.readAndShift()
-    let apiClientId = this._bufferParser.readAndShiftInt()
-    let apiOrderId = this._bufferParser.readAndShiftInt()
+  _ORDER_BOUND(buffer) {
+    let orderId = buffer.readInt()
+    let apiClientId = buffer.readInt()
+    let apiOrderId = buffer.readInt()
     this._emit('orderBound', orderId, apiClientId, apiOrderId)
   }
 }
