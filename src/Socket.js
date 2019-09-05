@@ -1,7 +1,7 @@
+import { flattenDeep } from 'lodash'
+
 import { Socket } from 'net'
 import { EventEmitter } from 'events'
-
-const EOL = '\0'
 
 export default class extends EventEmitter {
   constructor(options = { host: null, port: null }) {
@@ -53,17 +53,12 @@ export default class extends EventEmitter {
 
   write(data, cb) {
     // flatten if needed
-    let tokens = [data].reduce((prev, curr) => prev.concat(curr))
-    // cast the boolean values to 0 or 1
-    tokens = tokens.map((val, i) => {
-      if (typeof val === 'boolean') return val ? 1 : 0
-      return val
-    })
-    let message = tokens.join(EOL) + EOL
-    if (!this._socket.write(message, 'utf8')) {
-      this._socket.once('drain', cb(message))
+    let tokens = flattenDeep(data)
+    let buffer = Buffer.from(tokens)
+    if (!this._socket.write(buffer)) {
+      this._socket.once('drain', () => cb(buffer))
     } else {
-      process.nextTick(cb(message))
+      process.nextTick(() => cb(buffer))
     }
   }
 
@@ -84,22 +79,29 @@ export default class extends EventEmitter {
     this.emit('connected')
   }
 
+  _shiftHeader(buffer) {
+    let mask = 0xffffffff
+    return (
+      ((mask & buffer.shift()) << 24) |
+      ((mask & buffer.shift()) << 16) |
+      ((mask & buffer.shift()) << 8) |
+      (mask & buffer.shift())
+    )
+  }
+
+  _processBuffer(buffer) {
+    let length = this._shiftHeader(buffer)
+    this.emit('response-data', buffer.slice(0, length))
+    if (buffer.length > length) this._processBuffer(buffer.slice(length))
+  }
+
   _onData(data) {
-    let dataWithFragment = this._dataFragment + data.toString()
-
-    let tokens = dataWithFragment.split(EOL)
-    if (tokens[tokens.length - 1] !== '') this._dataFragment = tokens[tokens.length - 1]
-    else this._dataFragment = ''
-
-    tokens = tokens.slice(0, -1)
     if (this._firstReceived) {
-      if (tokens[0] && tokens[1]) {
-        this.emit('server', { serverVersion: parseInt(tokens[0], 10), connectionTime: tokens[1] })
-        tokens = tokens.slice(2)
-        this._firstReceived = false
-      }
+      this.emit('server', Array.from(data))
+      this._firstReceived = false
+    } else {
+      this._processBuffer(Array.from(data))
     }
-    this.emit('response-data', tokens)
   }
 
   _onError(error) {
