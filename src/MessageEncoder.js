@@ -486,8 +486,6 @@ class MessageEncoder {
         if (this._serverVersion >= 15) {
             buffer.push(this._encode(contract.multiplier))
         }
-        buffer.push(this._encode(contract.exchange))
-
 
         if (this._serverVersion >= MIN_SERVER_VER.PRIMARYEXCH) {
             buffer.push(this._encode(contract.exchange))
