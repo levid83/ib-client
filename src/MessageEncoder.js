@@ -302,7 +302,7 @@ class MessageEncoder {
         }
         let buffer = [this._encode(OUTGOING.REQ_HISTORICAL_DATA)]
 
-        if (this._serverVersion >= MIN_SERVER_VER.SYNT_REALTIME_BARS) {
+        if (this._serverVersion < MIN_SERVER_VER.SYNT_REALTIME_BARS) {
             buffer.push(this._encode(version))
         }
     

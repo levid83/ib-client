@@ -6,10 +6,6 @@ export default class {
     if (!conId) {
       assert(typeof symbol === 'string' && symbol.length > 0, 'Symbol must be a string.')
       assert(typeof expiry === 'string' && expiry.length > 0, 'Expiry must be a string.')
-      assert(
-        typeof multiplier === 'string' && multiplier.length > 0,
-        'Multiplier must be a string.'
-      )
     } else {
       assert(typeof conId === 'number', 'Contract Id must be a number.')
     }

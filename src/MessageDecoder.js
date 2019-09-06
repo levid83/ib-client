@@ -544,17 +544,16 @@ class MessageDecoder {
       completedIndicator += '-' + startDateStr + '-' + endDateStr
     }
     let itemCount = buffer.readInt()
-    let time
+    let date
     let open
     let high
     let low
     let close
     let volume
     let WAP
-    let hasGaps
     let barCount
     while (itemCount--) {
-      time = buffer.readString()
+      date = buffer.readString()
       open = buffer.readFloat()
       high = buffer.readFloat()
       low = buffer.readFloat()
@@ -572,16 +571,7 @@ class MessageDecoder {
       if (version >= 3) {
         barCount = buffer.readInt()
       }
-      this._emit('historicalData', reqId, {
-        time,
-        open,
-        high,
-        low,
-        close,
-        volume,
-        count: barCount,
-        WAP
-      })
+      this._emit('historicalData', reqId, { date, open, high, low, close, volume, barCount, WAP })
     }
     // send end of dataset marker
     this._emit('historicalDataEnd', reqId, startDateStr, endDateStr)
@@ -1236,7 +1226,7 @@ class MessageDecoder {
         order.conditionsCancelOrder = buffer.readBool()
       }
 
-      order.adjustedOrderType=ORDER_TYPE[buffer.readString()]
+      order.adjustedOrderType = ORDER_TYPE[buffer.readString()]
       order.triggerPrice = buffer.readFloatMax()
       order.trailStopPrice = buffer.readFloatMax()
       order.lmtPriceOffset = buffer.readFloatMax()
