@@ -58,8 +58,12 @@ class IBClient extends EventEmitter {
     return this
   }
   disconnect() {
-    this.schedule('disconnect')
+    this._socket.disconnect()
     return this
+  }
+
+  isConnected() {
+    return this._socket.isConnected()
   }
 
   sendV100APIHeader() {
