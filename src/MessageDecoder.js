@@ -357,7 +357,7 @@ class MessageDecoder {
   _SECURITY_DEFINITION_OPTION_PARAMETER_END(buffer) {
     let reqId = buffer.readInt()
 
-    this._emit('securityDefinitionOptionalParameterEnd', reqId)
+    this._emit('securityDefinitionOptionParameterEnd', reqId)
   }
 
   _SECURITY_DEFINITION_OPTION_PARAMETER(buffer) {
