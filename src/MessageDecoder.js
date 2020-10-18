@@ -3,13 +3,8 @@ import { SERVER_VERSION, TICK_TYPE, MIN_SERVER_VER, ORDER_TYPE } from './constan
 import BufferParser from './BufferParser'
 
 class MessageDecoder {
-  constructor(options = { eventHandler: null }) {
-    this._eventHandler = options.eventHandler
+  constructor() {
     this._serverVersion = SERVER_VERSION
-  }
-
-  _emit() {
-    this._eventHandler.emit(...arguments)
   }
 
   setServerVersion(version) {
@@ -56,7 +51,7 @@ class MessageDecoder {
 
     let done = buffer.readBool()
 
-    this._emit('historicalTicksLast', reqId, ticks, done)
+    return { message: 'historicalTicksLast', params: [reqId, ticks, done] }
   }
 
   _HISTORICAL_TICKS_BID_ASK(buffer) {
@@ -83,7 +78,7 @@ class MessageDecoder {
 
     let done = buffer.readBool()
 
-    this._emit('historicalTicksBidAsk', reqId, ticks, done)
+    return { message: 'historicalTicksBidAsk', params: [reqId, ticks, done] }
   }
 
   _HISTORICAL_TICKS(buffer) {
@@ -103,7 +98,7 @@ class MessageDecoder {
 
     let done = buffer.readBool()
 
-    this._emit('historicalTicks', reqId, ticks, done)
+    return { message: 'historicalTicks', params: [reqId, ticks, done] }
   }
 
   _MARKET_RULE(buffer) {
@@ -122,7 +117,7 @@ class MessageDecoder {
       priceIncrements = new PriceIncrement[0]()
     }
 
-    this._emit('marketRule', marketRuleId, priceIncrements)
+    return { message: 'marketRule', params: [marketRuleId, priceIncrements] }
   }
 
   _REROUTE_MKT_DEPTH_REQ(buffer) {
@@ -130,7 +125,7 @@ class MessageDecoder {
     let conId = buffer.readInt()
     let exchange = buffer.readString()
 
-    this._emit('rerouteMktDepthReq', reqId, conId, exchange)
+    return { message: 'rerouteMktDepthReq', params: [reqId, conId, exchange] }
   }
 
   _REROUTE_MKT_DATA_REQ(buffer) {
@@ -138,7 +133,7 @@ class MessageDecoder {
     let conId = buffer.readInt()
     let exchange = buffer.readString()
 
-    this._emit('rerouteMktDataReq', reqId, conId, exchange)
+    return { message: 'rerouteMktDataReq', params: [reqId, conId, exchange] }
   }
 
   _HISTORICAL_DATA_UPDATE(buffer) {
@@ -152,11 +147,10 @@ class MessageDecoder {
     let WAP = buffer.readFloat()
     let volume = buffer.readString()
 
-    this._emit(
-      'historicalDataUpdate',
-      reqId,
-      new Bar(date, open, high, low, close, volume, barCount, WAP)
-    )
+    return {
+      message: 'historicalDataUpdate',
+      params: [reqId, new Bar(date, open, high, low, close, volume, barCount, WAP)]
+    }
   }
 
   _PNL_SINGLE(buffer) {
@@ -176,7 +170,10 @@ class MessageDecoder {
 
     let value = buffer.readFloat()
 
-    this._emit('pnlSingle', reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value)
+    return {
+      message: 'pnlSingle',
+      params: [reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value]
+    }
   }
 
   _PNL(buffer) {
@@ -193,7 +190,7 @@ class MessageDecoder {
       realizedPnL = buffer.readFloat()
     }
 
-    this._emit('pnl', reqId, dailyPnL, unrealizedPnL, realizedPnL)
+    return { message: 'pnl', params: [reqId, dailyPnL, unrealizedPnL, realizedPnL] }
   }
 
   _HISTOGRAM_DATA(buffer) {
@@ -205,14 +202,14 @@ class MessageDecoder {
       items.push({ price: buffer.readFloat(), size: buffer.readInt() })
     }
 
-    this._emit('histogramData', reqId, items)
+    return { message: 'histogramData', params: [reqId, items] }
   }
 
   _HISTORICAL_NEWS_END(buffer) {
     let requestId = buffer.readInt()
     let hasMore = buffer.readBool()
 
-    this._emit('historicalNewsEnd', requestId, hasMore)
+    return { message: 'historicalNewsEnd', params: [requestId, hasMore] }
   }
 
   _HISTORICAL_NEWS(buffer) {
@@ -222,7 +219,10 @@ class MessageDecoder {
     let articleId = buffer.readString()
     let headline = buffer.readString()
 
-    this._emit('historicalNews', requestId, time, providerCode, articleId, headline)
+    return {
+      message: 'historicalNews',
+      params: [requestId, time, providerCode, articleId, headline]
+    }
   }
 
   _NEWS_ARTICLE(buffer) {
@@ -230,7 +230,7 @@ class MessageDecoder {
     let articleType = buffer.readInt()
     let articleText = buffer.readString()
 
-    this._emit('newsArticle', requestId, articleType, articleText)
+    return { message: 'newsArticle', params: [requestId, articleType, articleText] }
   }
 
   _NEWS_PROVIDERS(buffer) {
@@ -243,7 +243,7 @@ class MessageDecoder {
       }
     }
 
-    this._emit('newsProviders', newsProviders)
+    return { message: 'newsProviders', params: [newsProviders] }
   }
 
   _TICK_NEWS(buffer) {
@@ -254,14 +254,17 @@ class MessageDecoder {
     let headline = buffer.readString()
     let extraData = buffer.readString()
 
-    this._emit('tickNews', tickerId, timeStamp, providerCode, articleId, headline, extraData)
+    return {
+      message: 'tickNews',
+      params: [tickerId, timeStamp, providerCode, articleId, headline, extraData]
+    }
   }
 
   _HEAD_TIMESTAMP(buffer) {
     let reqId = buffer.readInt()
     let headTimestamp = buffer.readString()
 
-    this._emit('headTimestamp', reqId, headTimestamp)
+    return { message: 'headTimestamp', params: [reqId, headTimestamp] }
   }
 
   _MKT_DEPTH_EXCHANGES(buffer) {
@@ -290,7 +293,7 @@ class MessageDecoder {
       }
     }
 
-    this._emit('mktDepthExchanges', depthMktDataDescriptions)
+    return { message: 'mktDepthExchanges', params: [depthMktDataDescriptions] }
   }
 
   _SYMBOL_SAMPLES(buffer) {
@@ -323,7 +326,7 @@ class MessageDecoder {
       }
     }
 
-    this._emit('symbolSamples', reqId, contractDescriptions)
+    return { message: 'symbolSamples', params: [reqId, contractDescriptions] }
   }
   _FAMILY_CODES(buffer) {
     let familyCodes = []
@@ -335,7 +338,7 @@ class MessageDecoder {
       }
     }
 
-    this._emit('familyCodes', familyCodes)
+    return { message: 'familyCodes', params: [familyCodes] }
   }
 
   _SOFT_DOLLAR_TIERS(buffer) {
@@ -350,14 +353,13 @@ class MessageDecoder {
         displayName: buffer.readString()
       })
     }
-
-    this._emit('softDollarTiers', reqId, tiers)
+    return { message: 'softDollarTiers', params: [reqId, tiers] }
   }
 
   _SECURITY_DEFINITION_OPTION_PARAMETER_END(buffer) {
     let reqId = buffer.readInt()
 
-    this._emit('securityDefinitionOptionParameterEnd', reqId)
+    return { message: 'securityDefinitionOptionParameterEnd', params: [reqId] }
   }
 
   _SECURITY_DEFINITION_OPTION_PARAMETER(buffer) {
@@ -379,17 +381,10 @@ class MessageDecoder {
     for (let i = 0; i < strikesSize; i++) {
       strikes.push(buffer.readFloat())
     }
-
-    this._emit(
-      'securityDefinitionOptionParameter',
-      reqId,
-      exchange,
-      underlyingConId,
-      tradingClass,
-      multiplier,
-      expirations,
-      strikes
-    )
+    return {
+      message: 'securityDefinitionOptionParameter',
+      params: [reqId, exchange, underlyingConId, tradingClass, multiplier, expirations, strikes]
+    }
   }
 
   _VERIFY_AND_AUTH_COMPLETED(buffer) {
@@ -398,7 +393,7 @@ class MessageDecoder {
     let isSuccessful = isSuccessfulStr === 'true'
     let errorText = buffer.readString()
 
-    this._emit('verifyAndAuthCompleted', isSuccessful, errorText)
+    return { message: 'verifyAndAuthCompleted', params: [isSuccessful, errorText] }
   }
 
   _VERIFY_AND_AUTH_MESSAGE_API(buffer) {
@@ -406,7 +401,7 @@ class MessageDecoder {
     let apiData = buffer.readString()
     let xyzChallenge = buffer.readString()
 
-    this._emit('verifyAndAuthMessageAPI', apiData, xyzChallenge)
+    return { message: 'verifyAndAuthMessageAPI', params: [apiData, xyzChallenge] }
   }
 
   _DISPLAY_GROUP_UPDATED(buffer) {
@@ -414,7 +409,7 @@ class MessageDecoder {
     let reqId = buffer.readInt()
     let contractInfo = buffer.readString()
 
-    this._emit('displayGroupUpdated', reqId, contractInfo)
+    return { message: 'displayGroupUpdated', params: [reqId, contractInfo] }
   }
 
   _DISPLAY_GROUP_LIST(buffer) {
@@ -422,7 +417,7 @@ class MessageDecoder {
     let reqId = buffer.readInt()
     let groups = buffer.readString()
 
-    this._emit('displayGroupList', reqId, groups)
+    return { message: 'displayGroupList', params: [reqId, groups] }
   }
 
   _VERIFY_COMPLETED(buffer) {
@@ -430,14 +425,14 @@ class MessageDecoder {
     let isSuccessfulStr = buffer.readString()
     let isSuccessful = 'true'.equals(isSuccessfulStr)
     let errorText = buffer.readString()
-    this._emit('verifyCompleted', isSuccessful, errorText)
+    return { message: 'verifyCompleted', params: [isSuccessful, errorText] }
   }
 
   _VERIFY_MESSAGE_API(buffer) {
     let version = buffer.readInt()
     let apiData = buffer.readString()
 
-    this._emit('verifyMessageAPI', apiData)
+    return { message: 'verifyMessageAPI', params: [apiData] }
   }
 
   _COMMISSION_REPORT(buffer) {
@@ -449,20 +444,23 @@ class MessageDecoder {
     commissionReport.realizedPNL = buffer.readFloat()
     commissionReport.yield = buffer.readFloat()
     commissionReport.yieldRedemptionDate = buffer.readInt()
-    this._emit('commissionReport', commissionReport)
+
+    return { message: 'commissionReport', params: [commissionReport] }
   }
 
   _MARKET_DATA_TYPE(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
     let marketDataType = buffer.readInt()
-    this._emit('marketDataType', reqId, marketDataType)
+
+    return { message: 'marketDataType', params: [reqId, marketDataType] }
   }
 
   _TICK_SNAPSHOT_END(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
-    this._emit('tickSnapshotEnd', reqId)
+
+    return { message: 'tickSnapshotEnd', params: [reqId] }
   }
 
   _DELTA_NEUTRAL_VALIDATION(buffer) {
@@ -472,37 +470,43 @@ class MessageDecoder {
     deltaNeutralContract.conId = buffer.readInt()
     deltaNeutralContract.delta = buffer.readFloat()
     underdeltaNeutralContractComp.price = buffer.readFloat()
-    this._emit('deltaNeutralValidation', reqId, deltaNeutralContract)
+
+    return { message: 'deltaNeutralValidation', params: [reqId, deltaNeutralContract] }
   }
 
   _EXECUTION_DATA_END(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
-    this._emit('execDetailsEnd', reqId)
+
+    return { message: 'execDetailsEnd', params: [reqId] }
   }
 
   _ACCT_DOWNLOAD_END(buffer) {
     let version = buffer.readInt()
     let accountName = buffer.readString()
-    this._emit('accountDownloadEnd', accountName)
+
+    return { message: 'accountDownloadEnd', params: [accountName] }
   }
 
   _OPEN_ORDER_END(buffer) {
     let version = buffer.readInt()
-    this._emit('openOrderEnd')
+
+    return { message: 'openOrderEnd' }
   }
 
   _CONTRACT_DATA_END(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
-    this._emit('contractDetailsEnd', reqId)
+
+    return { message: 'contractDetailsEnd', params: [reqId] }
   }
 
   _FUNDAMENTAL_DATA(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
     let data = buffer.readString()
-    this._emit('fundamentalData', reqId, data)
+
+    return { message: 'fundamentalData', params: [reqId, data] }
   }
 
   _REAL_TIME_BARS(buffer) {
@@ -516,22 +520,30 @@ class MessageDecoder {
     let volume = buffer.readInt()
     let wap = buffer.readFloat()
     let count = buffer.readInt()
-    this._emit('realtimeBar', reqId, time, open, high, low, close, volume, wap, count)
+
+    return {
+      message: 'realtimeBar',
+      params: [reqId, time, open, high, low, close, volume, wap, count]
+    }
   }
 
   _CURRENT_TIME(buffer) {
     let version = buffer.readInt()
     let time = buffer.readString()
-    this._emit('currentTime', time)
+
+    return { message: 'currentTime', params: [time] }
   }
 
   _SCANNER_PARAMETERS(buffer) {
     let version = buffer.readInt()
     let xml = buffer.readString()
-    this._emit('scannerParameters', xml)
+
+    return { message: 'scannerParameters', params: [xml] }
   }
 
   _HISTORICAL_DATA(buffer) {
+    const messages = []
+
     let version =
       this._serverVersion < MIN_SERVER_VER.SYNT_REALTIME_BARS ? buffer.readInt() : Number.MAX_VALUE
     let reqId = buffer.readInt()
@@ -571,23 +583,30 @@ class MessageDecoder {
       if (version >= 3) {
         barCount = buffer.readInt()
       }
-      this._emit('historicalData', reqId, { date, open, high, low, close, volume, barCount, WAP })
+
+      messages.push({
+        message: 'historicalData',
+        params: [reqId, { date, open, high, low, close, volume, barCount, WAP }]
+      })
     }
     // send end of dataset marker
-    this._emit('historicalDataEnd', reqId, startDateStr, endDateStr)
+    messages.push({ message: 'historicalDataEnd', params: [reqId, startDateStr, endDateStr] })
+    return messages
   }
 
   _RECEIVE_FA(buffer) {
     let version = buffer.readInt()
     let faDataType = buffer.readInt()
     let xml = buffer.readString()
-    this._emit('receiveFA', faDataType, xml)
+
+    return { message: 'receiveFA', params: [faDataType, xml] }
   }
 
   _MANAGED_ACCTS(buffer) {
     let version = buffer.readInt()
     let accountsList = buffer.readString()
-    this._emit('managedAccounts', accountsList)
+
+    return { message: 'managedAccounts', params: [accountsList] }
   }
 
   _NEWS_BULLETINS(buffer) {
@@ -596,7 +615,11 @@ class MessageDecoder {
     let newsMsgType = buffer.readInt()
     let newsMessage = buffer.readString()
     let originatingExch = buffer.readString()
-    this._emit('updateNewsBulletin', newsMsgId, newsMsgType, newsMessage, originatingExch)
+
+    return {
+      message: 'updateNewsBulletin',
+      params: [newsMsgId, newsMsgType, newsMessage, originatingExch]
+    }
   }
 
   _MARKET_DEPTH_L2(buffer) {
@@ -610,17 +633,11 @@ class MessageDecoder {
     let size = buffer.readInt()
 
     let isSmartDepth = this._serverVersion >= MIN_SERVER_VER.SMART_DEPTH ? buffer.readBool() : false
-    this._emit(
-      'updateMktDepthL2',
-      id,
-      position,
-      marketMaker,
-      operation,
-      side,
-      price,
-      size,
-      isSmartDepth
-    )
+
+    return {
+      message: 'updateMktDepthL2',
+      params: [id, position, marketMaker, operation, side, price, size, isSmartDepth]
+    }
   }
 
   _MARKET_DEPTH(buffer) {
@@ -631,7 +648,8 @@ class MessageDecoder {
     let side = buffer.readInt()
     let price = buffer.readFloat()
     let size = buffer.readInt()
-    this._emit('updateMktDepth', id, position, operation, side, price, size)
+
+    return { message: 'updateMktDepth', params: [id, position, operation, side, price, size] }
   }
 
   _EXECUTION_DATA(buffer) {
@@ -703,7 +721,7 @@ class MessageDecoder {
       exec.lastLiquidity = buffer.readInt()
     }
 
-    this._emit('execDetails', reqId, contract, exec)
+    return { message: 'execDetails', params: [reqId, contract, exec] }
   }
 
   _BOND_CONTRACT_DATA(buffer) {
@@ -773,7 +791,8 @@ class MessageDecoder {
     if (this._serverVersion >= MIN_SERVER_VER.MARKET_RULES) {
       contract.marketRuleIds = buffer.readString()
     }
-    this._emit('bondContractDetails', reqId, contract)
+
+    return { message: 'bondContractDetails', params: [reqId, contract] }
   }
 
   _CONTRACT_DATA(buffer) {
@@ -856,19 +875,20 @@ class MessageDecoder {
       contract.realExpirationDate = buffer.readString()
     }
 
-    this._emit('contractDetails', reqId, contract)
+    return { message: 'contractDetails', params: [reqId, contract] }
   }
 
   _SCANNER_DATA(buffer) {
+    const messages = []
     let version = buffer.readInt()
     let tickerId = buffer.readInt()
     let numberOfElements = buffer.readInt()
-    let rank
-    while (numberOfElements--) {
+
+    for (let ctr = 0; ctr < numberOfElements; ctr++) {
       let contract = {
         summary: {}
       }
-      rank = buffer.readInt()
+      let rank = buffer.readInt()
       if (version >= 3) {
         contract.summary.conId = buffer.readInt()
       }
@@ -889,15 +909,20 @@ class MessageDecoder {
       if (version >= 2) {
         legsStr = buffer.readString()
       }
-      this._emit('scannerData', tickerId, rank, contract, distance, benchmark, projection, legsStr)
+      messages.push({
+        message: 'scannerData',
+        params: [tickerId, rank, contract, distance, benchmark, projection, legsStr]
+      })
     }
-    this._emit('scannerDataEnd', tickerId)
+    messages.push({ message: 'scannerDataEnd', params: [tickerId] })
+    return messages
   }
 
   _NEXT_VALID_ID(buffer) {
     let version = buffer.readInt()
     let orderId = buffer.readInt()
-    this._emit('nextValidId', orderId)
+
+    return { message: 'nextValidId', params: [orderId] }
   }
 
   _OPEN_ORDER(buffer) {
@@ -1260,7 +1285,7 @@ class MessageDecoder {
       order.discretionaryUpToLimitPrice = buffer.readBool()
     }
 
-    this._emit('openOrder', order.orderId, contract, order, orderState)
+    return { message: 'openOrder', params: [order.orderId, contract, order, orderState] }
   }
 
   _ERR_MSG(buffer) {
@@ -1270,23 +1295,19 @@ class MessageDecoder {
     let version = buffer.readInt()
     if (version < 2) {
       errorMsg = buffer.readString()
-      this._emit('error', errorMsg)
+      return { message: 'error', params: [errorMsg] }
     } else {
       id = buffer.readInt()
       errorCode = buffer.readInt()
       errorMsg = buffer.readString()
-      this._emit('error', {
-        id: id,
-        code: errorCode,
-        message: errorMsg
-      })
+      return { message: 'error', params: [id, errorCode, errorMsg] }
     }
   }
 
   _ACCT_UPDATE_TIME(buffer) {
     let version = buffer.readInt()
     let timeStamp = buffer.readString()
-    this._emit('updateAccountTime', timeStamp)
+    return { message: 'updateAccountTime', params: [timeStamp] }
   }
 
   _PORTFOLIO_VALUE(buffer) {
@@ -1332,17 +1353,20 @@ class MessageDecoder {
     if (version === 6 && this._serverVersion === 39) {
       contract.primaryExch = buffer.readString()
     }
-    this._emit(
-      'updatePortfolio',
-      contract,
-      position,
-      marketPrice,
-      marketValue,
-      averageCost,
-      unrealizedPNL,
-      realizedPNL,
-      accountName
-    )
+
+    return {
+      message: 'updatePortfolio',
+      params: [
+        contract,
+        position,
+        marketPrice,
+        marketValue,
+        averageCost,
+        unrealizedPNL,
+        realizedPNL,
+        accountName
+      ]
+    }
   }
 
   _ACCT_VALUE(buffer) {
@@ -1354,7 +1378,8 @@ class MessageDecoder {
     if (version >= 2) {
       accountName = buffer.readString()
     }
-    this._emit('updateAccountValue', key, value, currency, accountName)
+
+    return { message: 'updateAccountValue', params: [key, value, currency, accountName] }
   }
 
   _ORDER_STATUS(buffer) {
@@ -1394,20 +1419,23 @@ class MessageDecoder {
 
     let mktCapPrice =
       this._serverVersion >= MIN_SERVER_VER.MARKET_CAP_PRICE ? buffer.readFloat() : Number.MAX_VALUE
-    this._emit(
-      'orderStatus',
-      id,
-      status,
-      filled,
-      remaining,
-      avgFillPrice,
-      permId,
-      parentId,
-      lastFillPrice,
-      clientId,
-      whyHeld,
-      mktCapPrice
-    )
+
+    return {
+      message: 'orderStatus',
+      params: [
+        id,
+        status,
+        filled,
+        remaining,
+        avgFillPrice,
+        permId,
+        parentId,
+        lastFillPrice,
+        clientId,
+        whyHeld,
+        mktCapPrice
+      ]
+    }
   }
 
   _TICK_EFP(buffer) {
@@ -1421,18 +1449,21 @@ class MessageDecoder {
     let futuresExpiry = buffer.readString()
     let dividendImpact = buffer.readFloat()
     let dividendsToExpiry = buffer.readFloat()
-    this._emit(
-      'tickEFP',
-      tickerId,
-      tickType,
-      basisPoints,
-      formattedBasisPoints,
-      impliedFuturesPrice,
-      holdDays,
-      futuresExpiry,
-      dividendImpact,
-      dividendsToExpiry
-    )
+
+    return {
+      message: 'tickEFP',
+      params: [
+        tickerId,
+        tickType,
+        basisPoints,
+        formattedBasisPoints,
+        impliedFuturesPrice,
+        holdDays,
+        futuresExpiry,
+        dividendImpact,
+        dividendsToExpiry
+      ]
+    }
   }
 
   _TICK_STRING(buffer) {
@@ -1440,7 +1471,8 @@ class MessageDecoder {
     let tickerId = buffer.readInt()
     let tickType = buffer.readInt()
     let value = buffer.readString()
-    this._emit('tickString', tickerId, tickType, value)
+
+    return { message: 'tickString', params: [tickerId, tickType, value] }
   }
 
   _TICK_GENERIC(buffer) {
@@ -1448,7 +1480,8 @@ class MessageDecoder {
     let tickerId = buffer.readInt()
     let tickType = buffer.readInt()
     let value = buffer.readFloat()
-    this._emit('tickGeneric', tickerId, tickType, value)
+
+    return { message: 'tickGeneric', params: [tickerId, tickType, value] }
   }
 
   _TICK_OPTION_COMPUTATION(buffer) {
@@ -1506,25 +1539,28 @@ class MessageDecoder {
         undPrice = Number.MAX_VALUE
       }
     }
-    this._emit(
-      'tickOptionComputation',
-      tickerId,
-      tickType,
-      impliedVol,
-      delta,
-      optPrice,
-      pvDividend,
-      gamma,
-      vega,
-      theta,
-      undPrice
-    )
+    return {
+      message: 'tickOptionComputation',
+      params: [
+        tickerId,
+        tickType,
+        impliedVol,
+        delta,
+        optPrice,
+        pvDividend,
+        gamma,
+        vega,
+        theta,
+        undPrice
+      ]
+    }
   }
 
   _ACCOUNT_SUMMARY_END(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
-    this._emit('accountSummaryEnd', reqId)
+
+    return { message: 'accountSummaryEnd', params: [reqId] }
   }
 
   _ACCOUNT_SUMMARY(buffer) {
@@ -1534,12 +1570,13 @@ class MessageDecoder {
     let tag = buffer.readString()
     let value = buffer.readString()
     let currency = buffer.readString()
-    this._emit('accountSummary', reqId, account, tag, value, currency)
+
+    return { message: 'accountSummary', params: [reqId, account, tag, value, currency] }
   }
 
   _POSITION_END(buffer) {
     let version = buffer.readInt()
-    this._emit('positionEnd')
+    return { message: 'positionEnd' }
   }
 
   _POSITION(buffer) {
@@ -1567,7 +1604,8 @@ class MessageDecoder {
     if (version >= 3) {
       avgCost = buffer.readFloat()
     }
-    this._emit('position', account, contract, pos, avgCost)
+
+    return { message: 'position', params: [account, contract, pos, avgCost] }
   }
 
   _TICK_SIZE(buffer) {
@@ -1575,10 +1613,12 @@ class MessageDecoder {
     let tickerId = buffer.readInt()
     let tickType = buffer.readInt()
     let size = buffer.readInt()
-    this._emit('tickSize', tickerId, tickType, size)
+
+    return { message: 'tickSize', params: [tickerId, tickType, size] }
   }
 
   _TICK_PRICE(buffer) {
+    const messages = []
     let version = buffer.readInt()
     let tickerId = buffer.readInt()
     let tickType = buffer.readInt()
@@ -1603,7 +1643,11 @@ class MessageDecoder {
       }
     }
 
-    this._emit('tickPrice', tickerId, tickType, price, attribs)
+    messages.push({
+      message: 'tickPrice',
+      params: [tickerId, tickType, price, attribs]
+    })
+
     let sizeTickType = -1
     if (version >= 2) {
       sizeTickType = -1 // not a tick
@@ -1630,9 +1674,10 @@ class MessageDecoder {
           break
       }
       if (sizeTickType !== -1) {
-        this._emit('tickSize', tickerId, sizeTickType, size)
+        messages.push({ message: 'tickSize', params: [tickerId, sizeTickType, size] })
       }
     }
+    return messages
   }
 
   _POSITION_MULTI(buffer) {
@@ -1655,13 +1700,15 @@ class MessageDecoder {
     let pos = buffer.readFloat()
     let avgCost = buffer.readFloat()
     let modelCode = buffer.readString()
-    this._emit('positionMulti', reqId, account, modelCode, contract, pos, avgCost)
+
+    return { message: 'positionMulti', params: [reqId, account, modelCode, contract, pos, avgCost] }
   }
 
   _POSITION_MULTI_END(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
-    this._emit('positionMultiEnd', reqId)
+
+    return { message: 'positionMultiEnd', params: [reqId] }
   }
 
   _ACCOUNT_UPDATE_MULTI(buffer) {
@@ -1672,13 +1719,17 @@ class MessageDecoder {
     let key = buffer.readString()
     let value = buffer.readString()
     let currency = buffer.readString()
-    this._emit('accountUpdateMulti', reqId, account, modelCode, key, value, currency)
+    return {
+      message: 'accountUpdateMulti',
+      params: [reqId, account, modelCode, key, value, currency]
+    }
   }
 
   _ACCOUNT_UPDATE_MULTI_END(buffer) {
     let version = buffer.readInt()
     let reqId = buffer.readInt()
-    this._emit('accountUpdateMultiEnd', reqId)
+
+    return { message: 'accountUpdateMultiEnd', params: [reqId] }
   }
 
   _SMART_COMPONENTS(buffer) {
@@ -1694,7 +1745,7 @@ class MessageDecoder {
       theMap.push({ bitNumber, exhange: { exchange, exchangeLetter } })
     }
 
-    this._emit('smartComponents', reqId, theMap)
+    return { message: 'smartComponents', params: [reqId, theMap] }
   }
 
   _TICK_REQ_PARAMS(buffer) {
@@ -1702,7 +1753,11 @@ class MessageDecoder {
     let minTick = buffer.readFloat()
     let bboExchange = buffer.readString()
     let snapshotPermissions = buffer.readInt()
-    this._emit('tickReqParams', tickerId, minTick, bboExchange, snapshotPermissions)
+
+    return {
+      message: 'tickReqParams',
+      params: [tickerId, minTick, bboExchange, snapshotPermissions]
+    }
   }
 
   _TICK_BY_TICK(buffer) {
@@ -1722,18 +1777,21 @@ class MessageDecoder {
         let unreported = (mask & (1 << 1)) !== 0
         let exchange = buffer.readString()
         let specialConditions = buffer.readString()
-        this._emit(
-          'tickByTickAllLast',
-          reqId,
-          tickType,
-          time,
-          price,
-          size,
-          { pastLimit, unreported },
-          exchange,
-          specialConditions
-        )
-        break
+
+        return {
+          message: 'tickByTickAllLast',
+          params: [
+            reqId,
+            tickType,
+            time,
+            price,
+            size,
+            { pastLimit, unreported },
+            exchange,
+            specialConditions
+          ]
+        }
+
       case 3: // BidAsk
         let bidPrice = buffer.readFloat()
         let askPrice = buffer.readFloat()
@@ -1742,15 +1800,26 @@ class MessageDecoder {
         mask = buffer.readInt()
         let bidPastLow = (mask & (1 << 0)) !== 0
         let askPastHigh = (mask & (1 << 1)) !== 0
-        this._emit('tickByTickBidAsk', reqId, time, bidPrice, askPrice, bidSize, askSize, {
-          bidPastLow,
-          askPastHigh
-        })
-        break
+
+        return {
+          message: 'tickByTickBidAsk',
+          params: [
+            reqId,
+            time,
+            bidPrice,
+            askPrice,
+            bidSize,
+            askSize,
+            {
+              bidPastLow,
+              askPastHigh
+            }
+          ]
+        }
+
       case 4: // MidPoint
         let midPoint = buffer.readFloat()
-        this._emit('tickByTickMidPoint', reqId, time, midPoint)
-        break
+        return { message: 'tickByTickMidPoint', params: [reqId, time, midPoint] }
     }
   }
 
@@ -1758,7 +1827,8 @@ class MessageDecoder {
     let orderId = buffer.readInt()
     let apiClientId = buffer.readInt()
     let apiOrderId = buffer.readInt()
-    this._emit('orderBound', orderId, apiClientId, apiOrderId)
+
+    return { message: 'orderBound', params: [orderId, apiClientId, apiOrderId] }
   }
 }
 

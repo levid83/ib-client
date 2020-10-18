@@ -9,7 +9,12 @@ export default class extends Queue {
     }
   ) {
     super(function(message, cb) {
-      options.decoder.decodeMessage(message)
+      const result = options.decoder.decodeMessage(message)
+      if (Array.isArray(result)) {
+        result.map(message => this._emitEvent(options.eventHandler, message))
+      } else {
+        this._emitEvent(options.eventHandler, result.message)
+      }
       cb(null, true)
     })
 
@@ -19,6 +24,14 @@ export default class extends Queue {
 
     this._socket.on('response-data', data => this.push(data))
     this._socket.on('server', this.onServerVersionData.bind(this))
+  }
+
+  _emitEvent(eventHandler, message) {
+    if (message.params) {
+      eventHandler.emit(message.message, ...message.params)
+    } else {
+      eventHandler.emit(message.message)
+    }
   }
 
   onServerVersionData(data) {

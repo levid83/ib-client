@@ -9,7 +9,13 @@ import MessageDecoder from './MessageDecoder'
 import { BROKER_ERRORS } from './errors'
 
 class IBClient extends EventEmitter {
-  constructor(options = { socket: null, clientId: null }) {
+  constructor(
+    options = {
+      socket: null,
+      clientId: null,
+      messageDecoder: new MessageDecoder()
+    }
+  ) {
     super()
     this._clientId = options.clientId
     this._socket = this._initSocket(new Socket(options.socket))
@@ -18,9 +24,7 @@ class IBClient extends EventEmitter {
       eventHandler: this
     })
 
-    this._messageDecoder = new MessageDecoder({
-      eventHandler: this
-    })
+    this._messageDecoder = options.messageDecoder
 
     this._outboundQueue = new OutboundQueue({
       eventHandler: this,

@@ -4,3 +4,4 @@ import OrderBuilder from './OrderBuilder'
 
 export default IBClient
 export { OrderBuilder, ContractBuilder }
+export * from './constants'
