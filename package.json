@@ -43,24 +43,24 @@
   "dependencies": {
     "better-queue": "^3.8.10",
     "function-rate-limit": "^1.1.0",
-    "lodash": "^4.17.15"
+    "lodash": "^4.17.20"
   },
   "devDependencies": {
-    "@babel/cli": "^7.5.5",
-    "@babel/core": "^7.3.3",
-    "@babel/node": "^7.2.2",
-    "@babel/preset-env": "^7.5.5",
-    "@babel/register": "^7.0.0",
-    "acorn": "^6.1.0",
+    "@babel/cli": "^7.12.1",
+    "@babel/core": "^7.12.3",
+    "@babel/node": "^7.12.1",
+    "@babel/preset-env": "^7.12.1",
+    "@babel/register": "^7.12.1",
+    "acorn": "^6.4.2",
     "eslint": "^5.14.1",
     "eslint-config-prettier": "^4.0.0",
     "eslint-config-standard": "^12.0.0",
-    "eslint-plugin-import": "^2.16.0",
+    "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-node": "^8.0.1",
-    "eslint-plugin-prettier": "^3.0.1",
+    "eslint-plugin-prettier": "^3.1.4",
     "eslint-plugin-promise": "^4.0.1",
-    "eslint-plugin-standard": "^4.0.0",
-    "nodemon": "^1.18.10",
-    "prettier": "^1.16.4"
+    "eslint-plugin-standard": "^4.0.1",
+    "nodemon": "^1.19.4",
+    "prettier": "^1.19.1"
   }
 }
