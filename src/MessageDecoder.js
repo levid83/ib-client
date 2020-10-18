@@ -1418,7 +1418,7 @@ class MessageDecoder {
     let formattedBasisPoints = buffer.readString()
     let impliedFuturesPrice = buffer.readFloat()
     let holdDays = buffer.readInt()
-    let futureExpiry = buffer.readString()
+    let futuresExpiry = buffer.readString()
     let dividendImpact = buffer.readFloat()
     let dividendsToExpiry = buffer.readFloat()
     this._emit(
@@ -1429,7 +1429,7 @@ class MessageDecoder {
       formattedBasisPoints,
       impliedFuturesPrice,
       holdDays,
-      futureExpiry,
+      futuresExpiry,
       dividendImpact,
       dividendsToExpiry
     )

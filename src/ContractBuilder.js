@@ -4,8 +4,8 @@ import ComboLeg from './contracts/ComboLeg'
 import { SEC_TYPE } from './constants'
 import Stock from './contracts/Stock'
 import StockOption from './contracts/StockOption'
-import Future from './contracts/Future'
-import FutureOption from './contracts/FutureOption'
+import Futures from './contracts/Futures'
+import FuturesOption from './contracts/FuturesOption'
 
 export default class ContractBuilder {
   constructor(contract = {}) {
@@ -68,10 +68,10 @@ export default class ContractBuilder {
         return new Stock(this)
       case SEC_TYPE.STOCK_OPTION:
         return new StockOption(this)
-      case SEC_TYPE.FUTURE:
-        return new Future(this)
-      case SEC_TYPE.FUTURE_OPTION:
-        return new FutureOption(this)
+      case SEC_TYPE.FUTURES:
+        return new Futures(this)
+      case SEC_TYPE.FUTURES_OPTION:
+        return new FuturesOption(this)
       case SEC_TYPE.BAG:
         if (!Array.isArray(this.comboLegs) || this.comboLegs.length < 2)
           throw Error('Combo has no or just one leg.')

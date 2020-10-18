@@ -348,9 +348,9 @@ export const MAX_VERSION = SERVER_VERSION // ditto
 
 export const SEC_TYPE = {
   STOCK: 'STK',
-  FUTURE: 'FUT',
+  FUTURES: 'FUT',
   STOCK_OPTION: 'OPT',
-  FUTURE_OPTION: 'FOP',
+  FUTURES_OPTION: 'FOP',
   BAG: 'BAG'
 }
 

@@ -14,7 +14,7 @@ export default class {
 
     this.conId = conId || undefined
     this.symbol = symbol || undefined
-    this.secType = SEC_TYPE.FUTURE_OPTION
+    this.secType = SEC_TYPE.FUTURES_OPTION
     this.strike = strike || undefined
     this.expiry = expiry || undefined
     this.right = right || undefined
