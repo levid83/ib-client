@@ -13,9 +13,10 @@ class MessageDecoder {
 
   decodeMessage(data) {
     let buffer = new BufferParser(data)
-    buffer.process((err, methodName) => {
+    return buffer.process((err, methodName) => {
       if (err) throw err
-      if (methodName && typeof this['_' + methodName] === 'function') this['_' + methodName](buffer)
+      if (methodName && typeof this['_' + methodName] === 'function')
+        return this['_' + methodName](buffer)
       else throw new Error('Unknown broker API response: ' + methodName)
     })
   }

@@ -12,30 +12,26 @@ class IBClient extends EventEmitter {
   constructor(
     options = {
       socket: null,
-      clientId: null,
-      messageDecoder: new MessageDecoder()
-    }
+      clientId: null
+    },
+    socketWrapper = null,
+    messageEncoder = new MessageEncoder(),
+    messageDecoder = new MessageDecoder(),
+    inboundQueue = null,
+    outboundQueue = null
   ) {
     super()
     this._clientId = options.clientId
-    this._socket = this._initSocket(new Socket(options.socket))
 
-    this._messageEncoder = new MessageEncoder({
-      eventHandler: this
-    })
+    this._messageEncoder = messageEncoder
+    this._messageDecoder = messageDecoder
+    this._inboundQueue = inboundQueue
 
-    this._messageDecoder = options.messageDecoder
+    this._inboundQueue =
+      inboundQueue || new InboundQueue((message, cb) => this.onResponseMessage(message, cb))
 
-    this._outboundQueue = new OutboundQueue({
-      eventHandler: this,
-      encoder: this._messageEncoder,
-      socket: this._socket
-    })
-    this._inboundQueue = new InboundQueue({
-      eventHandler: this,
-      decoder: this._messageDecoder,
-      socket: this._socket
-    })
+    this._socket = this._initSocket(socketWrapper ? socketWrapper : new Socket(options.socket))
+    this._outboundQueue = this._initOutboundQueue(outboundQueue)
 
     this.on('server', ({ serverVersion }) => {
       this._messageEncoder.setServerVersion(serverVersion)
@@ -49,12 +45,66 @@ class IBClient extends EventEmitter {
       .onError(err => this.emit('error', err))
       .onConnected(() => this.emit('connected'))
       .onClose(err => this.emit('disconnected', err))
+      .onServerData(data => {
+        let version = this._messageDecoder.decodeServerVersion(data)
+        this.emit('server', version)
+      })
+      .onResponse(data => this._inboundQueue.push(data))
+
     return socket
   }
 
+  _initOutboundQueue(queue) {
+    if (queue) return queue
+    return new OutboundQueue(
+      (message, cb) => this.onSendMessage(message, cb),
+      cb => cb(null, this._socket.isConnected()),
+      (message, cb) => {
+        if (['startAPI'].includes(message[1])) {
+          cb(null, 10)
+        } else {
+          cb(null, 5)
+        }
+      }
+    )
+  }
   _sendMessage() {
     let message = Array.from(arguments)
     this._outboundQueue.push(message).on('failure', err => this.emit('error', err))
+  }
+
+  onSendMessage(message, cb) {
+    try {
+      let { message: encoded } = this._messageEncoder.encodeMessage(message)
+      this._socket.write(encoded, result => this.emit('sent', message, result))
+    } catch (err) {
+      this.emit('error', err)
+    }
+    cb(null, true)
+  }
+
+  onResponseMessage(message, cb) {
+    const result = this._messageDecoder.decodeMessage(message)
+    this._emitResponseMessageEvent(result)
+    cb(null, true)
+  }
+
+  _emitResponseMessageEvent(result) {
+    if (Array.isArray(result)) {
+      result.map(msg => {
+        if (msg.params) {
+          this.emit(msg.message, ...msg.params)
+        } else {
+          this.emit(msg.message)
+        }
+      })
+    } else {
+      if (result.params) {
+        this.emit(result.message, ...result.params)
+      } else {
+        this.emit(result.message)
+      }
+    }
   }
 
   connect() {

@@ -65,7 +65,7 @@ class BufferParser {
       if (!responseFunctionName) {
         cb(new Error('Unknown response code ', responseCode), null)
       } else {
-        cb(null, responseFunctionName)
+        return cb(null, responseFunctionName)
       }
     } catch (e) {
       throw e
