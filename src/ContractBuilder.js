@@ -1,4 +1,4 @@
-import assert from 'assert'
+import { validateInput } from './validators'
 import Combo from './contracts/Combo'
 import ComboLeg from './contracts/ComboLeg'
 import { SEC_TYPE } from './constants'
@@ -50,7 +50,7 @@ export default class ContractBuilder {
     return this
   }
   addComboLeg(comboLeg) {
-    assert(!comboLeg instanceof ComboLeg, 'comboLeg must be a ComboLeg instance.')
+    validateInput(!comboLeg instanceof ComboLeg, 'comboLeg must be a ComboLeg instance.')
     this.comboLegs = comboLeg
     return this
   }

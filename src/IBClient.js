@@ -1,5 +1,6 @@
-import assert, { fail } from 'assert'
 import { EventEmitter } from 'events'
+import { validateInput } from './validators'
+
 import Socket from './Socket'
 import OutboundQueue from './OutboundQueue'
 import InboundQueue from './InboundQueue'
@@ -121,7 +122,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelScannerSubscription(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     this._sendMessage(
       { id: tickerId, error: BROKER_ERRORS.FAIL_SEND_CANSCANNER },
       'cancelScannerSubscription',
@@ -149,7 +150,7 @@ class IBClient extends EventEmitter {
     scannerSubscriptionOptions,
     scannerSubscriptionFilterOptions
   ) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     this._sendMessage(
       {
         id: tickerId,
@@ -166,13 +167,13 @@ class IBClient extends EventEmitter {
   }
 
   reqMktData(tickerId, contract, genericTickList, snapshot, regulatorySnapshot, mktDataOptions) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(
       typeof genericTickList === 'string',
       '"genericTickList" must be a string - ' + genericTickList
     )
-    assert(typeof snapshot === 'boolean', '"snapshot" must be a boolean - ' + snapshot)
-    assert(
+    validateInput(typeof snapshot === 'boolean', '"snapshot" must be a boolean - ' + snapshot)
+    validateInput(
       typeof regulatorySnapshot === 'boolean',
       '"regulatorySnapshot" must be a boolean - ' + regulatorySnapshot
     )
@@ -194,7 +195,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelHistoricalData(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     this._sendMessage(
       {
         id: tickerId,
@@ -208,7 +209,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelRealTimeBars(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     this._sendMessage(
       {
         id: tickerId,
@@ -232,17 +233,26 @@ class IBClient extends EventEmitter {
     keepUpToDate,
     chartOptions
   ) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(typeof endDateTime === 'string', '"endDateTime" must be a string - ' + endDateTime)
-    assert(typeof durationStr === 'string', '"durationStr" must be a string - ' + durationStr)
-    assert(
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(
+      typeof endDateTime === 'string',
+      '"endDateTime" must be a string - ' + endDateTime
+    )
+    validateInput(
+      typeof durationStr === 'string',
+      '"durationStr" must be a string - ' + durationStr
+    )
+    validateInput(
       typeof barSizeSetting === 'string',
       '"barSizeSetting" must be a string - ' + barSizeSetting
     )
-    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
-    assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
-    assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
-    assert(typeof keepUpToDate === 'boolean', '"keepUpToDate" must be an boolean - ' + keepUpToDate)
+    validateInput(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
+    validateInput(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
+    validateInput(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
+    validateInput(
+      typeof keepUpToDate === 'boolean',
+      '"keepUpToDate" must be an boolean - ' + keepUpToDate
+    )
     this._sendMessage(
       {
         id: tickerId,
@@ -265,10 +275,10 @@ class IBClient extends EventEmitter {
   }
 
   reqHeadTimestamp(reqId, contract, whatToShow, useRTH, formatDate) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
-    assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
-    assert(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
+    validateInput(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
+    validateInput(Number.isInteger(formatDate), '"formatDate" must be an integer - ' + formatDate)
     this._sendMessage(
       {
         id: reqId,
@@ -286,7 +296,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelHeadTimestamp(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -300,10 +310,10 @@ class IBClient extends EventEmitter {
   }
 
   reqRealTimeBars(tickerId, contract, barSize, whatToShow, useRTH, realTimeBarsOptions) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(Number.isInteger(barSize), '"barSize" must be an integer - ' + barSize)
-    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
-    assert(typeof useRTH === 'boolean', '"useRTH" must be a boolean - ' + useRTH)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(barSize), '"barSize" must be an integer - ' + barSize)
+    validateInput(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
+    validateInput(typeof useRTH === 'boolean', '"useRTH" must be a boolean - ' + useRTH)
     this._sendMessage(
       {
         id: tickerId,
@@ -322,7 +332,7 @@ class IBClient extends EventEmitter {
   }
 
   reqContractDetails(reqId, contract) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -337,9 +347,12 @@ class IBClient extends EventEmitter {
   }
 
   reqMktDepth(tickerId, contract, numRows, isSmartDepth, mktDepthOptions) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(Number.isInteger(numRows), '"numRows" must be an integer - ' + numRows)
-    assert(typeof isSmartDepth === 'boolean', '"isSmartDepth" must be a boolean - ' + isSmartDepth)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(numRows), '"numRows" must be an integer - ' + numRows)
+    validateInput(
+      typeof isSmartDepth === 'boolean',
+      '"isSmartDepth" must be a boolean - ' + isSmartDepth
+    )
 
     this._sendMessage(
       {
@@ -358,7 +371,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelMktData(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     this._sendMessage(
       {
         id: tickerId,
@@ -372,8 +385,11 @@ class IBClient extends EventEmitter {
   }
 
   cancelMktDepth(tickerId, isSmartDepth) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(typeof isSmartDepth === 'boolean', '"isSmartDepth" must be a boolean - ' + isSmartDepth)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(
+      typeof isSmartDepth === 'boolean',
+      '"isSmartDepth" must be a boolean - ' + isSmartDepth
+    )
 
     this._sendMessage(
       {
@@ -388,17 +404,17 @@ class IBClient extends EventEmitter {
   }
 
   exerciseOptions(tickerId, contract, exerciseAction, exerciseQuantity, account, override) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(
       Number.isInteger(exerciseAction),
       '"exerciseAction" must be an integer - ' + exerciseAction
     )
-    assert(
+    validateInput(
       Number.isInteger(exerciseQuantity),
       '"exerciseQuantity" must be an integer - ' + exerciseQuantity
     )
-    assert(typeof account === 'string', '"account" must be a string - ' + account)
-    assert(Number.isInteger(override), '"override" must be an integer - ' + override)
+    validateInput(typeof account === 'string', '"account" must be a string - ' + account)
+    validateInput(Number.isInteger(override), '"override" must be an integer - ' + override)
     this._sendMessage(
       {
         id: tickerId,
@@ -417,7 +433,7 @@ class IBClient extends EventEmitter {
   }
 
   placeOrder(id, contract, order) {
-    assert(Number.isInteger(id), '"id" must be an integer - ' + id)
+    validateInput(Number.isInteger(id), '"id" must be an integer - ' + id)
     this._sendMessage(
       {
         id: id,
@@ -433,8 +449,8 @@ class IBClient extends EventEmitter {
   }
 
   reqAccountUpdates(subscribe, acctCode) {
-    assert(typeof subscribe === 'boolean', '"subscribe" must be a boolean - ' + subscribe)
-    assert(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
+    validateInput(typeof subscribe === 'boolean', '"subscribe" must be a boolean - ' + subscribe)
+    validateInput(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
     this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
@@ -449,7 +465,7 @@ class IBClient extends EventEmitter {
   }
 
   reqExecutions(reqId, filter) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -464,7 +480,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelOrder(id) {
-    assert(Number.isInteger(id), '"id" must be an integer - ' + id)
+    validateInput(Number.isInteger(id), '"id" must be an integer - ' + id)
     this._sendMessage(
       {
         id: id,
@@ -490,7 +506,7 @@ class IBClient extends EventEmitter {
   }
 
   reqIds(numIds) {
-    assert(Number.isInteger(numIds), '"numIds" must be an integer - ' + numIds)
+    validateInput(Number.isInteger(numIds), '"numIds" must be an integer - ' + numIds)
     this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
@@ -504,7 +520,7 @@ class IBClient extends EventEmitter {
   }
 
   reqNewsBulletins(allMsgs) {
-    assert(typeof allMsgs === 'boolean', '"allMsgs" must be a boolean - ' + allMsgs)
+    validateInput(typeof allMsgs === 'boolean', '"allMsgs" must be a boolean - ' + allMsgs)
     this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
@@ -530,7 +546,7 @@ class IBClient extends EventEmitter {
   }
 
   setServerLogLevel(logLevel) {
-    assert(Number.isInteger(logLevel), '"logLevel" must be an integer - ' + logLevel)
+    validateInput(Number.isInteger(logLevel), '"logLevel" must be an integer - ' + logLevel)
     this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
@@ -544,7 +560,7 @@ class IBClient extends EventEmitter {
   }
 
   reqAutoOpenOrders(bAutoBind) {
-    assert(typeof bAutoBind === 'boolean', '"bAutoBind" must be a boolean - ' + bAutoBind)
+    validateInput(typeof bAutoBind === 'boolean', '"bAutoBind" must be a boolean - ' + bAutoBind)
     this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
@@ -582,7 +598,7 @@ class IBClient extends EventEmitter {
   }
 
   requestFA(faDataType) {
-    assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
+    validateInput(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
     this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
@@ -596,8 +612,8 @@ class IBClient extends EventEmitter {
   }
 
   replaceFA(faDataType, xml) {
-    assert(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
-    assert(typeof xml === 'string', '"xml" must be a string - ' + xml)
+    validateInput(Number.isInteger(faDataType), '"faDataType" must be an integer - ' + faDataType)
+    validateInput(typeof xml === 'string', '"xml" must be a string - ' + xml)
     this._sendMessage(
       {
         id: BROKER_ERRORS.NO_VALID_ID,
@@ -624,8 +640,8 @@ class IBClient extends EventEmitter {
   }
 
   reqFundamentalData(reqId, contract, reportType, fundamentalDataOptions = null) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof reportType === 'string', '"reportType" must be a string - ' + reportType)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof reportType === 'string', '"reportType" must be a string - ' + reportType)
     this._sendMessage(
       {
         id: reqId,
@@ -642,7 +658,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelFundamentalData(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -662,7 +678,7 @@ class IBClient extends EventEmitter {
     underPrice,
     impliedVolatilityOptions = null
   ) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -680,7 +696,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelCalculateImpliedVolatility(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -694,7 +710,7 @@ class IBClient extends EventEmitter {
   }
 
   calculateOptionPrice(reqId, contract, volatility, underPrice, optionPriceOptions = null) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -712,7 +728,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelCalculateOptionPrice(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -738,7 +754,7 @@ class IBClient extends EventEmitter {
   }
 
   reqMarketDataType(marketDataType) {
-    assert(
+    validateInput(
       Number.isInteger(marketDataType),
       '"marketDataType" must be an integer - ' + marketDataType
     )
@@ -767,20 +783,20 @@ class IBClient extends EventEmitter {
   }
 
   reqSecDefOptParams(reqId, underlyingSymbol, futFopExchange, underlyingSecType, underlyingConId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(
       typeof underlyingSymbol === 'string',
       '"underlyingSymbol" must be a string - ' + underlyingSymbol
     )
-    assert(
+    validateInput(
       typeof futFopExchange === 'string',
       '"futFopExchange" must be a string - ' + futFopExchange
     )
-    assert(
+    validateInput(
       typeof underlyingSecType === 'string',
       '"underlyingSecType" must be a string - ' + underlyingSecType
     )
-    assert(
+    validateInput(
       Number.isInteger(underlyingConId),
       '"underlyingConId" must be an integer - ' + underlyingConId
     )
@@ -801,7 +817,7 @@ class IBClient extends EventEmitter {
   }
 
   reqSoftDollarTiers(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -827,9 +843,9 @@ class IBClient extends EventEmitter {
   }
 
   reqPositionsMulti(reqId, account, modelCode) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof account === 'string', '"account" must be a string - ' + account)
-    assert(
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof account === 'string', '"account" must be a string - ' + account)
+    validateInput(
       typeof modelCode === 'string' || typeof modelCode === 'object',
       '"modelCode" must be a string or null - ' + modelCode
     )
@@ -848,7 +864,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelPositionsMulti(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -862,7 +878,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelAccountUpdatesMulti(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -876,13 +892,16 @@ class IBClient extends EventEmitter {
   }
 
   reqAccountUpdatesMulti(reqId, acctCode, modelCode, ledgerAndNLV) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
-    assert(
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof acctCode === 'string', '"acctCode" must be a string - ' + acctCode)
+    validateInput(
       typeof modelCode === 'string' || typeof modelCode === 'object',
       '"modelCode" must be a string or null - ' + modelCode
     )
-    assert(typeof ledgerAndNLV === 'boolean', '"ledgerAndNLV" must be a boolean - ' + ledgerAndNLV)
+    validateInput(
+      typeof ledgerAndNLV === 'boolean',
+      '"ledgerAndNLV" must be a boolean - ' + ledgerAndNLV
+    )
     this._sendMessage(
       {
         id: reqId,
@@ -899,9 +918,9 @@ class IBClient extends EventEmitter {
   }
 
   reqAccountSummary(reqId, group, tags) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof group === 'string', '"group" must be a string - ' + group)
-    assert(
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof group === 'string', '"group" must be a string - ' + group)
+    validateInput(
       Array.isArray(tags) || typeof tags === 'string',
       '"tags" must be array or string - ' + tags
     )
@@ -923,7 +942,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelAccountSummary(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -937,8 +956,8 @@ class IBClient extends EventEmitter {
   }
 
   verifyRequest(apiName, apiVersion) {
-    assert(typeof apiName === 'string', '"apiName" must be a string - ' + apiName)
-    assert(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
+    validateInput(typeof apiName === 'string', '"apiName" must be a string - ' + apiName)
+    validateInput(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
 
     this._sendMessage(
       {
@@ -954,7 +973,7 @@ class IBClient extends EventEmitter {
   }
 
   verifyMessage(apiData) {
-    assert(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
+    validateInput(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
 
     this._sendMessage(
       {
@@ -969,9 +988,12 @@ class IBClient extends EventEmitter {
   }
 
   verifyAndAuthRequest(apiName, apiVersion, opaqueIsvKey) {
-    assert(typeof apiName === 'string', '"apiName" must be a string - ' + apiName)
-    assert(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
-    assert(typeof opaqueIsvKey === 'string', '"opaqueIsvKey" must be a string - ' + opaqueIsvKey)
+    validateInput(typeof apiName === 'string', '"apiName" must be a string - ' + apiName)
+    validateInput(typeof apiVersion === 'string', '"apiVersion" must be a string - ' + apiVersion)
+    validateInput(
+      typeof opaqueIsvKey === 'string',
+      '"opaqueIsvKey" must be a string - ' + opaqueIsvKey
+    )
 
     this._sendMessage(
       {
@@ -988,8 +1010,11 @@ class IBClient extends EventEmitter {
   }
 
   verifyAndAuthMessage(apiData, xyzResponse) {
-    assert(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
-    assert(typeof xyzResponse === 'string', '"xyzResponse" must be a string - ' + xyzResponse)
+    validateInput(typeof apiData === 'string', '"apiData" must be a string - ' + apiData)
+    validateInput(
+      typeof xyzResponse === 'string',
+      '"xyzResponse" must be a string - ' + xyzResponse
+    )
 
     this._sendMessage(
       {
@@ -1005,7 +1030,7 @@ class IBClient extends EventEmitter {
   }
 
   queryDisplayGroups(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -1019,8 +1044,8 @@ class IBClient extends EventEmitter {
   }
 
   subscribeToGroupEvents(reqId, groupId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof groupId === 'string', '"groupId" must be an integer - ' + groupId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof groupId === 'string', '"groupId" must be an integer - ' + groupId)
     this._sendMessage(
       {
         id: reqId,
@@ -1035,8 +1060,11 @@ class IBClient extends EventEmitter {
   }
 
   updateDisplayGroup(reqId, contractInfo) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof contractInfo === 'string', '"contractInfo" must be an string - ' + contractInfo)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(
+      typeof contractInfo === 'string',
+      '"contractInfo" must be an string - ' + contractInfo
+    )
     this._sendMessage(
       {
         id: reqId,
@@ -1051,7 +1079,7 @@ class IBClient extends EventEmitter {
   }
 
   unsubscribeFromGroupEvents(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
     this._sendMessage(
       {
         id: reqId,
@@ -1065,8 +1093,8 @@ class IBClient extends EventEmitter {
   }
 
   reqMatchingSymbols(reqId, pattern) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof pattern === 'string', '"pattern" must be a string - ' + pattern)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof pattern === 'string', '"pattern" must be a string - ' + pattern)
     this._sendMessage(
       {
         id: reqId,
@@ -1101,8 +1129,11 @@ class IBClient extends EventEmitter {
   }
 
   reqSmartComponents(reqId, bboExchange) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof bboExchange === 'string', '"bboExchange" must be a string - ' + bboExchange)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(
+      typeof bboExchange === 'string',
+      '"bboExchange" must be a string - ' + bboExchange
+    )
     this._sendMessage(
       {
         id: reqId,
@@ -1125,8 +1156,11 @@ class IBClient extends EventEmitter {
   }
 
   reqNewsArticle(reqId, providerCode, articleId = null, newsArticleOptions) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof providerCode === 'string', '"providerCode" must be a string - ' + providerCode)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(
+      typeof providerCode === 'string',
+      '"providerCode" must be a string - ' + providerCode
+    )
     this._sendMessage(
       {
         id: reqId,
@@ -1149,13 +1183,25 @@ class IBClient extends EventEmitter {
     totalResults,
     historicalNewsOptions = null
   ) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(Number.isInteger(conId), '"conId" must be an integer - ' + conId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(conId), '"conId" must be an integer - ' + conId)
 
-    assert(typeof providerCode === 'string', '"providerCode" must be a string - ' + providerCode)
-    assert(typeof startDateTime === 'string', '"startDateTime" must be a string - ' + providerCode)
-    assert(typeof endDateTime === 'string', '"endDateTime" must be a string - ' + providerCode)
-    assert(Number.isInteger(totalResults), '"totalResults" must be an integer - ' + totalResults)
+    validateInput(
+      typeof providerCode === 'string',
+      '"providerCode" must be a string - ' + providerCode
+    )
+    validateInput(
+      typeof startDateTime === 'string',
+      '"startDateTime" must be a string - ' + providerCode
+    )
+    validateInput(
+      typeof endDateTime === 'string',
+      '"endDateTime" must be a string - ' + providerCode
+    )
+    validateInput(
+      Number.isInteger(totalResults),
+      '"totalResults" must be an integer - ' + totalResults
+    )
 
     this._sendMessage(
       {
@@ -1174,9 +1220,9 @@ class IBClient extends EventEmitter {
   }
 
   reqHistogramData(reqId, contract, useRTH, timePeriod) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof useRTH === 'boolean', '"useRTH" must be an boolean - ' + useRTH)
-    assert(typeof timePeriod === 'string', '"timePeriod" must be a string - ' + timePeriod)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof useRTH === 'boolean', '"useRTH" must be an boolean - ' + useRTH)
+    validateInput(typeof timePeriod === 'string', '"timePeriod" must be a string - ' + timePeriod)
 
     this._sendMessage(
       {
@@ -1192,7 +1238,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelHistogramData(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
 
     this._sendMessage(
       {
@@ -1205,7 +1251,10 @@ class IBClient extends EventEmitter {
   }
 
   reqMarketRule(marketRuleId) {
-    assert(Number.isInteger(marketRuleId), '"marketRuleId" must be an integer - ' + marketRuleId)
+    validateInput(
+      Number.isInteger(marketRuleId),
+      '"marketRuleId" must be an integer - ' + marketRuleId
+    )
 
     this._sendMessage(
       {
@@ -1218,9 +1267,9 @@ class IBClient extends EventEmitter {
   }
 
   reqPnL(reqId, account, modelCode) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof account === 'string', '"account" must be a string - ' + account)
-    assert(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof account === 'string', '"account" must be a string - ' + account)
+    validateInput(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
 
     this._sendMessage(
       {
@@ -1235,7 +1284,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelPnL(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
 
     this._sendMessage(
       {
@@ -1248,10 +1297,10 @@ class IBClient extends EventEmitter {
   }
 
   reqPnLSingle(reqId, account, modelCode, conId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
-    assert(typeof account === 'string', '"account" must be a string - ' + account)
-    assert(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
-    assert(Number.isInteger(conId), '"conId" must be an integer - ' + conId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(typeof account === 'string', '"account" must be a string - ' + account)
+    validateInput(typeof modelCode === 'string', '"modelCode" must be a string - ' + modelCode)
+    validateInput(Number.isInteger(conId), '"conId" must be an integer - ' + conId)
 
     this._sendMessage(
       {
@@ -1267,7 +1316,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelPnLSingle(reqId) {
-    assert(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
+    validateInput(Number.isInteger(reqId), '"reqId" must be an integer - ' + reqId)
 
     this._sendMessage(
       {
@@ -1290,19 +1339,25 @@ class IBClient extends EventEmitter {
     ignoreSize,
     miscOptions
   ) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    if ((startDateTime && endDateTime) || (!startDateTime && !endDateTime)) {
-      fail(
-        'specify one of "startDateTime" or "endDateTime" (as a string) but not both - ' +
-          startDateTime +
-          ':' +
-          endDateTime
-      )
-    }
-    assert(Number.isInteger(numberOfTicks), '"numberOfTicks" must be a number - ' + numberOfTicks)
-    assert(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
-    assert(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
-    assert(typeof ignoreSize === 'boolean', '"ignoreSize" must be an boolean - ' + ignoreSize)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(
+      (!startDateTime && endDateTime) || (startDateTime && !endDateTime),
+      'specify one of "startDateTime" or "endDateTime" (as a string) but not both - ' +
+        startDateTime +
+        ':' +
+        endDateTime
+    )
+
+    validateInput(
+      Number.isInteger(numberOfTicks),
+      '"numberOfTicks" must be a number - ' + numberOfTicks
+    )
+    validateInput(typeof whatToShow === 'string', '"whatToShow" must be a string - ' + whatToShow)
+    validateInput(Number.isInteger(useRTH), '"useRTH" must be an integer - ' + useRTH)
+    validateInput(
+      typeof ignoreSize === 'boolean',
+      '"ignoreSize" must be an boolean - ' + ignoreSize
+    )
     this._sendMessage(
       {
         id: tickerId,
@@ -1324,10 +1379,16 @@ class IBClient extends EventEmitter {
   }
 
   reqTickByTickData(tickerId, contract, tickType, numberOfTicks, ignoreSize) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
-    assert(typeof tickType === 'string', '"tickType" must be a string - ' + tickType)
-    assert(Number.isInteger(numberOfTicks), '"numberOfTicks" must be a number - ' + numberOfTicks)
-    assert(typeof ignoreSize === 'boolean', '"ignoreSize" must be an boolean - ' + ignoreSize)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(typeof tickType === 'string', '"tickType" must be a string - ' + tickType)
+    validateInput(
+      Number.isInteger(numberOfTicks),
+      '"numberOfTicks" must be a number - ' + numberOfTicks
+    )
+    validateInput(
+      typeof ignoreSize === 'boolean',
+      '"ignoreSize" must be an boolean - ' + ignoreSize
+    )
     this._sendMessage(
       {
         id: tickerId,
@@ -1345,7 +1406,7 @@ class IBClient extends EventEmitter {
   }
 
   cancelTickByTickData(tickerId) {
-    assert(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
+    validateInput(Number.isInteger(tickerId), '"tickerId" must be an integer - ' + tickerId)
     this._sendMessage(
       {
         id: tickerId,
