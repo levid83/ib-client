@@ -23,6 +23,7 @@ export default class ContractBuilder {
 
   setConId(conId) {
     this.conId = conId
+    return this
   }
   setSymbol(symbol) {
     this.symbol = symbol
