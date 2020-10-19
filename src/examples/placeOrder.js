@@ -1,3 +1,4 @@
+import { InputTypeError } from '../errors'
 import brokerClient from './brokerClient'
 import {
   ContractBuilder,
@@ -45,13 +46,17 @@ brokerClient.connect()
 
 //listen to connect event
 brokerClient.on('nextValidId', nextOrderId => {
-  // Place buy stock order
-  brokerClient.placeOrder(nextOrderId, stockContract, stockOrder)
-  //increment nextOrderId
-  nextOrderId++
-
-  // Place sell put option order
-  brokerClient.placeOrder(nextOrderId, optionContract, optionOrder)
+  try {
+    // Place buy stock order
+    brokerClient.placeOrder(nextOrderId, stockContract, stockOrder)
+    //increment nextOrderId
+    nextOrderId++
+    // Place sell put option order
+    brokerClient.placeOrder(nextOrderId, optionContract, optionOrder)
+  } catch (err) {
+    if (err instanceof InputTypeError) console.log(err)
+    else throw err
+  }
 })
 
 //listen to order opened event

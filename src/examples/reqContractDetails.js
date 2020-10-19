@@ -1,3 +1,4 @@
+import { InputTypeError } from '../errors'
 import brokerClient from './brokerClient'
 import { ContractBuilder, SEC_TYPE } from '..'
 
@@ -15,7 +16,12 @@ brokerClient.connect()
 
 //listen to connect event
 brokerClient.on('nextValidId', nextOrderId => {
-  brokerClient.reqContractDetails(requestId++, futuresContract)
+  try {
+    brokerClient.reqContractDetails(requestId++, futuresContract)
+  } catch (err) {
+    if (err instanceof InputTypeError) console.log(err)
+    else throw err
+  }
 })
 
 // listen to contract details event
