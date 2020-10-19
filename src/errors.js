@@ -146,3 +146,11 @@ export class UnderrunError extends Error {
     this.stack = new Error().stack
   }
 }
+
+export class InputTypeError extends TypeError {
+  constructor(message) {
+    super()
+    this.name = 'InputTypeError'
+    this.message = message || ' Invalid input type'
+  }
+}
